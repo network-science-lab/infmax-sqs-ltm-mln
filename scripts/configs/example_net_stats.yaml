@@ -3,10 +3,10 @@ networks:
   - "aucs"
   - "ckm_physicians"
   - "lazega"
-  # - "eu_transportation"
-  # - "eu_transport_klm"
-  # - "cannes"
-  # - "fmri74"
+  - "eu_transportation"
+  - "eu_transport_klm"
+  - "cannes"
+  - "fmri74"
   - "timik1q2009"
 
   # large real-world networks
@@ -14,16 +14,16 @@ networks:
   # - "arxiv_netscience_coauthorship_math.oc"
 
   # small synthetic (Erdos-Renyi)
+  - "er1"
   - "er2"
   - "er3"
-  # - "er5"
-  # - "er1"
+  - "er5"
 
   # small synthetic (scale-free)
+  - "sf1"
   - "sf2"
   - "sf3"
-  # - "sf5"
-  # - "sf1"
+  - "sf5"
 
   # toy networks (built into network-diffusion)
   - "toy_network_piotr"

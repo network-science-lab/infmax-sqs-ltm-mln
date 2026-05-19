@@ -6,8 +6,10 @@ from typing import Any
 import yaml
 from tqdm import tqdm
 
-from sqs.loaders.net_loader import load_network
 from sqs import utils
+from sqs.loaders.net_loader import load_network
+
+_MD_TABLE_FILE = "net_stats.md"
 
 
 def _summarise(net_name: str, net: Any) -> str:
@@ -21,18 +23,41 @@ def _summarise(net_name: str, net: Any) -> str:
     """
     layer_names = net.get_layer_names()
     actors = net.get_actors_num()
-    edge_counts = " | ".join(
-        f"{ln}: {net.layers[ln].number_of_edges()} edges" for ln in layer_names
-    )
+    edge_counts = " | ".join(f"{ln}: {net.layers[ln].number_of_edges()}" for ln in layer_names)
     return f"{net_name}  layers={len(layer_names)}  actors={actors}  [{edge_counts}]"
+
+
+def _write_md_table(rows: list[tuple[str, Any]], path: Path) -> None:
+    """
+    Write a Markdown table of network statistics to disk.
+
+    Columns: network name, number of layers, number of actors, total edges,
+    and a per-layer edge breakdown.
+
+    :param rows: list of ``(net_name, net)`` pairs in display order.
+    :param path: destination file path.
+    """
+    header = "| Network | Layers | Actors | Total edges | Edges per layer |"
+    separator = "|---------|--------|--------|-------------|-----------------|"
+    lines = [header, separator]
+    for net_name, net in rows:
+        layer_names = net.get_layer_names()
+        actors = net.get_actors_num()
+        layer_edges = {ln: net.layers[ln].number_of_edges() for ln in layer_names}
+        total = sum(layer_edges.values())
+        breakdown = ", ".join(f"{ln}: {e}" for ln, e in layer_edges.items())
+        lines.append(f"| {net_name} | {len(layer_names)} | {actors} | {total} | {breakdown} |")
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
 
 
 def run(config: dict[str, Any]) -> None:
     """
-    Load every network listed in config and persist the stamped config to disk.
+    Load networks, print per-network stats, and persist a Markdown stats table to disk.
 
     The config is written to ``<out_dir>/config.yaml`` with an additional
-    ``git_sha`` field recording the HEAD commit of the repository at run time.
+    ``git_sha`` field recording the HEAD commit at run time. The stats table
+    is written to ``<out_dir>/net_stats.md``.
 
     :param config: pipeline configuration dict (see ``scripts/configs/``).
     """
@@ -48,13 +73,16 @@ def run(config: dict[str, Any]) -> None:
     print(f"Config saved to {out_dir / 'config.yaml'}\n")
 
     network_names: list[str] = config["networks"]
-    loaded = []
+    loaded: list[tuple[str, Any]] = []
 
     for net_name in tqdm(network_names, desc="Loading networks", colour="green"):
         net = load_network(net_name)
         loaded.append((net_name, net))
         tqdm.write(f"  {_summarise(net_name, net)}")
 
+    _write_md_table(loaded, out_dir / _MD_TABLE_FILE)
+
     finish_time = utils.get_current_time()
     print(f"\nLoaded {len(loaded)}/{len(network_names)} networks successfully.")
+    print(f"Stats table saved to {out_dir / _MD_TABLE_FILE}")
     print(f"Pipeline finished at {finish_time}")

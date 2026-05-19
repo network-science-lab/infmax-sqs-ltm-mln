@@ -5,6 +5,7 @@ import argparse
 import yaml
 
 from sqs.pipeline import net_stats
+from sqs.utils import initialise_logger, logger
 
 
 def parse_args(*args: str) -> argparse.Namespace:
@@ -32,19 +33,19 @@ _RUNNERS = {
 
 def main() -> None:
     """Read a YAML config and dispatch to the appropriate pipeline stage."""
+    initialise_logger()
     args = parse_args()
 
     with open(args.config, "r", encoding="utf-8") as fh:
         config = yaml.safe_load(fh)
 
-    print(f"Loaded config: {config}")
+    logger.info("Loaded config: %s", config)
 
     experiment_type = config["run"]["experiment_type"]
     runner = _RUNNERS.get(experiment_type)
     if runner is None:
         raise ValueError(
-            f"Unknown experiment_type {experiment_type!r}. "
-            f"Available: {list(_RUNNERS)}"
+            f"Unknown experiment_type {experiment_type!r}. Available: {list(_RUNNERS)}"
         )
 
     runner(config)
