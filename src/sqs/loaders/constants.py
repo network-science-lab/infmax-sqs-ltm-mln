@@ -1,4 +1,4 @@
-"""A script with strings used across module in form of variables."""
+"""Constants shared across the loaders module: data-path root and network name strings."""
 
 from pathlib import Path
 

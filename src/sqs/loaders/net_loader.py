@@ -1,4 +1,4 @@
-"""A loader for multilayer networks stored in the dataset."""
+"""Loaders for multilayer networks stored in the dataset."""
 
 from functools import wraps
 from pathlib import Path
@@ -37,12 +37,19 @@ from sqs.loaders.constants import (
 from sqs.loaders.fmri74 import read_fmri74
 
 
-def _network_from_pandas(path):
-    """Build a MultilayerNetwork from a CSV edge list with columns node_1, node_2, layer."""
+def _network_from_pandas(path: Path) -> nd.MultilayerNetwork:
+    """
+    Build a MultilayerNetwork from a CSV edge list with columns node_1, node_2, layer.
+
+    :param path: path to the CSV file.
+
+    :returns: MultilayerNetwork with one layer per unique value in the layer column.
+    """
     df = pd.read_csv(path, names=["node_1", "node_2", "layer"])
-    net_dict = {l_name: nx.Graph() for l_name in df["layer"].unique()}
-    for _, row in df.iterrows():  # TODO: consider changing the method of iterating
-        net_dict[row["layer"]].add_edge(row["node_1"], row["node_2"])
+    net_dict = {
+        l_name: nx.from_pandas_edgelist(group, source="node_1", target="node_2")
+        for l_name, group in df.groupby("layer")
+    }
     return nd.MultilayerNetwork.from_nx_layers(
         layer_names=list(net_dict.keys()), network_list=list(net_dict.values())
     )
@@ -52,7 +59,7 @@ def return_some_layers(get_network_func: Callable) -> Callable:
     """Wrap a network loader to optionally filter its result to a subset of layers."""
 
     @wraps(get_network_func)
-    def wrapper(layer_slice=None):
+    def wrapper(layer_slice: list[str] | None = None) -> nd.MultilayerNetwork:
         net = get_network_func()
         if not layer_slice:
             return net
@@ -62,142 +69,165 @@ def return_some_layers(get_network_func: Callable) -> Callable:
     return wrapper
 
 
-def get_aucs_network():
+def get_aucs_network() -> nd.MultilayerNetwork:
     """Return the AUCS multilayer network."""
-    return nd.MultilayerNetwork.from_mpx(file_path=f"{MLN_RAW_DATA_PATH}/small_real/aucs.mpx")
+    return nd.MultilayerNetwork.from_mpx(
+        file_path=str(MLN_RAW_DATA_PATH / "small_real" / "aucs.mpx")
+    )
 
 
-def get_ckm_physicians_network():
+def get_ckm_physicians_network() -> nd.MultilayerNetwork:
     """Return the CKM Physicians Innovation multilayer network."""
     return _network_from_pandas(
-        f"{MLN_RAW_DATA_PATH}/small_real/CKM-Physicians-Innovation_4NoNature.edges"
+        MLN_RAW_DATA_PATH / "small_real" / "CKM-Physicians-Innovation_4NoNature.edges"
     )
 
 
 @return_some_layers
-def get_eu_transportation_network():
+def get_eu_transportation_network() -> nd.MultilayerNetwork:
     """Return the EU Air Transportation multilayer network."""
     return _network_from_pandas(
-        f"{MLN_RAW_DATA_PATH}/small_real/EUAirTransportation_multiplex_4NoNature.edges"
+        MLN_RAW_DATA_PATH / "small_real" / "EUAirTransportation_multiplex_4NoNature.edges"
     )
 
 
-def get_lazega_network():
+def get_lazega_network() -> nd.MultilayerNetwork:
     """Return the Lazega Law Firm multilayer network."""
     return _network_from_pandas(
-        f"{MLN_RAW_DATA_PATH}/small_real/Lazega-Law-Firm_4NoNatureNoLoops.edges"
+        MLN_RAW_DATA_PATH / "small_real" / "Lazega-Law-Firm_4NoNatureNoLoops.edges"
     )
 
 
-def get_er2_network():
+def get_er2_network() -> nd.MultilayerNetwork:
     """Return a 2-layer Erdos-Renyi synthetic multilayer network."""
-    return nd.MultilayerNetwork.from_mpx(file_path=f"{MLN_RAW_DATA_PATH}/small_artificial/er_2.mpx")
+    return nd.MultilayerNetwork.from_mpx(
+        file_path=str(MLN_RAW_DATA_PATH / "small_artificial" / "er_2.mpx")
+    )
 
 
-def get_er3_network():
+def get_er3_network() -> nd.MultilayerNetwork:
     """Return a 3-layer Erdos-Renyi synthetic multilayer network."""
-    return nd.MultilayerNetwork.from_mpx(file_path=f"{MLN_RAW_DATA_PATH}/small_artificial/er_3.mpx")
+    return nd.MultilayerNetwork.from_mpx(
+        file_path=str(MLN_RAW_DATA_PATH / "small_artificial" / "er_3.mpx")
+    )
 
 
 @return_some_layers
-def get_er5_network():
+def get_er5_network() -> nd.MultilayerNetwork:
     """Return a 5-layer Erdos-Renyi synthetic multilayer network."""
-    return nd.MultilayerNetwork.from_mpx(file_path=f"{MLN_RAW_DATA_PATH}/small_artificial/er_5.mpx")
+    return nd.MultilayerNetwork.from_mpx(
+        file_path=str(MLN_RAW_DATA_PATH / "small_artificial" / "er_5.mpx")
+    )
 
 
-def get_sf2_network():
+def get_sf2_network() -> nd.MultilayerNetwork:
     """Return a 2-layer scale-free synthetic multilayer network."""
-    return nd.MultilayerNetwork.from_mpx(file_path=f"{MLN_RAW_DATA_PATH}/small_artificial/sf_2.mpx")
+    return nd.MultilayerNetwork.from_mpx(
+        file_path=str(MLN_RAW_DATA_PATH / "small_artificial" / "sf_2.mpx")
+    )
 
 
-def get_sf3_network():
+def get_sf3_network() -> nd.MultilayerNetwork:
     """Return a 3-layer scale-free synthetic multilayer network."""
-    return nd.MultilayerNetwork.from_mpx(file_path=f"{MLN_RAW_DATA_PATH}/small_artificial/sf_3.mpx")
+    return nd.MultilayerNetwork.from_mpx(
+        file_path=str(MLN_RAW_DATA_PATH / "small_artificial" / "sf_3.mpx")
+    )
 
 
 @return_some_layers
-def get_sf5_network():
+def get_sf5_network() -> nd.MultilayerNetwork:
     """Return a 5-layer scale-free synthetic multilayer network."""
-    return nd.MultilayerNetwork.from_mpx(file_path=f"{MLN_RAW_DATA_PATH}/small_artificial/sf_5.mpx")
+    return nd.MultilayerNetwork.from_mpx(
+        file_path=str(MLN_RAW_DATA_PATH / "small_artificial" / "sf_5.mpx")
+    )
 
 
-def get_ddm_network(layernames_path, edgelist_path, weighted, digraph):
-    """Build a MultilayerNetwork from a DDM-format layer-name file and edge list."""
-    # read mapping of layer IDs to their names
-    with open(layernames_path, encoding="utf-8") as file:
-        layer_names = file.readlines()
-    layer_names = [ln.rstrip("\n").split(" ") for ln in layer_names]
-    layer_names = {ln[0]: ln[1] for ln in layer_names}
+def get_ddm_network(
+    layernames_path: Path,
+    edgelist_path: Path,
+    weighted: bool,
+    digraph: bool,
+) -> nd.MultilayerNetwork:
+    """
+    Build a MultilayerNetwork from a DDM-format layer-name file and multiplex edge list.
 
-    # read the edgelist and create containers for the layers
+    :param layernames_path: text file mapping integer layer IDs to layer names (one per line,
+        space-separated: ``<id> <name>``).
+    :param edgelist_path: space-separated edge list with columns layer_id, node_1, node_2, weight.
+    :param weighted: if True, copy the weight column onto each edge as an attribute.
+    :param digraph: if True, create directed graphs per layer; otherwise undirected.
+
+    :returns: MultilayerNetwork constructed from the supplied edge list.
+    """
+    with layernames_path.open(encoding="utf-8") as fh:
+        layer_names: dict[str, str] = {
+            parts[0]: parts[1] for line in fh for parts in [line.rstrip("\n").split(" ")]
+        }
+
     df = pd.read_csv(
         edgelist_path,
         names=["layer_id", "node_1", "node_2", "weight"],
         sep=" ",
         dtype={"node_1": str, "node_2": str},
     )
-    net_ids_dict = {
-        l_name: nx.DiGraph() if digraph else nx.Graph() for l_name in list(df["layer_id"].unique())
+    net_ids_dict: dict[int, nx.Graph] = {
+        l_id: nx.DiGraph() if digraph else nx.Graph() for l_id in df["layer_id"].unique()
     }
+    for row in df.itertuples(index=False):
+        attrs = {"weight": row.weight} if weighted else {}
+        net_ids_dict[row.layer_id].add_edge(row.node_1, row.node_2, **attrs)
 
-    # populate network with edges
-    for _, row in df.iterrows():  # TODO: consider changing the method of iterating
-        if weighted:
-            attrs = {"weight": row["weight"]}
-        else:
-            attrs = {}
-        net_ids_dict[row["layer_id"]].add_edge(row["node_1"], row["node_2"], **attrs)
-
-    # rename layers
     net_names_dict = {
         layer_names[str(layer_id)]: layer_graph for layer_id, layer_graph in net_ids_dict.items()
     }
-
-    # create multilater network from edges
     return nd.MultilayerNetwork.from_nx_layers(
         layer_names=list(net_names_dict.keys()), network_list=list(net_names_dict.values())
     )
 
 
 @return_some_layers
-def get_arxiv_network():
+def get_arxiv_network() -> nd.MultilayerNetwork:
     """Return the arXiv Network Science coauthorship multilayer network."""
-    root_path = Path(f"{MLN_RAW_DATA_PATH}/arxiv_netscience_coauthorship/Dataset")
-    net = get_ddm_network(
+    root_path = MLN_RAW_DATA_PATH / "arxiv_netscience_coauthorship" / "Dataset"
+    return get_ddm_network(
         layernames_path=root_path / "arxiv_netscience_layers.txt",
         edgelist_path=root_path / "arxiv_netscience_multiplex.edges",
         weighted=False,
         digraph=False,
     )
-    return net
 
 
-def get_cannes_network():
+def get_cannes_network() -> nd.MultilayerNetwork:
     """Return the Cannes 2013 social multilayer network."""
-    root_path = Path(f"{MLN_RAW_DATA_PATH}/cannes_2013_social/Dataset")
-    net = get_ddm_network(
+    root_path = MLN_RAW_DATA_PATH / "cannes_2013_social" / "Dataset"
+    return get_ddm_network(
         layernames_path=root_path / "Cannes2013_layers.txt",
         edgelist_path=root_path / "Cannes2013_multiplex.edges",
         weighted=False,
         digraph=False,
     )
-    return net
 
 
-def get_timik1q2009_network():
+def get_timik1q2009_network() -> nd.MultilayerNetwork:
     """Return the TIMIK 1Q2009 multilayer network."""
-    layer_graphs = []
-    layer_names = []
-    for i in Path(f"{MLN_RAW_DATA_PATH}/timik1q2009").glob("*.csv"):
-        layer_names.append(i.stem)
-        layer_graphs.append(nx.from_pandas_edgelist(pd.read_csv(i)))
+    layer_names, layer_graphs = [], []
+    for csv_file in (MLN_RAW_DATA_PATH / "timik1q2009").glob("*.csv"):
+        layer_names.append(csv_file.stem)
+        layer_graphs.append(nx.from_pandas_edgelist(pd.read_csv(csv_file)))
     return nd.MultilayerNetwork.from_nx_layers(layer_graphs, layer_names)
 
 
 def load_network(net_name: str) -> nd.MultilayerNetwork:
-    """Return the multilayer network identified by net_name."""
+    """
+    Return the multilayer network identified by net_name.
+
+    :param net_name: name of the network; must match one of the constants in
+        ``sqs.loaders.constants`` or start with ``MLN_2ND_STAGE_PREFIX``.
+
+    :returns: loaded MultilayerNetwork ready for simulation.
+    """
     if net_name == FMRI74:
-        return read_fmri74(network_dir=f"{MLN_RAW_DATA_PATH}/CONTROL_fmt", binary=True, thresh=0.5)
+        return read_fmri74(network_dir=MLN_RAW_DATA_PATH / "CONTROL_fmt", binary=True, thresh=0.5)
     elif net_name == ARXIV_NETSCIENCE_COAUTHORSHIP:
         return get_arxiv_network()
     elif net_name == ARXIV_NETSCIENCE_COAUTHORSHIP_MATH:
@@ -247,6 +277,6 @@ def load_network(net_name: str) -> nd.MultilayerNetwork:
     elif net_name == TOY_NETWORK:
         return nd.mln.functions.get_toy_network_piotr()
     elif net_name.startswith(MLN_2ND_STAGE_PREFIX):
-        net_name = net_name.replace("-", "/") + ".mpx"
-        return nd.MultilayerNetwork.from_mpx(net_name)
+        mpx_path = Path(net_name.replace("-", "/") + ".mpx")
+        return nd.MultilayerNetwork.from_mpx(str(mpx_path))
     raise AttributeError(f"Unknown network: {net_name}")
