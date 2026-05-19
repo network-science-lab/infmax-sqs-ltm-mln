@@ -7,7 +7,12 @@ authors = [
     { name = "Michał Czuba", email = "michal.czuba.1995@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "network-diffusion>=0.15.0",
+    "networkx>=3.6.1",
+    "pandas>=2.2.3",
+    "tqdm>=4.66.6",
+]
 
 [project.scripts]
 sqs = "sqs:main"
@@ -19,4 +24,5 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
 ]
