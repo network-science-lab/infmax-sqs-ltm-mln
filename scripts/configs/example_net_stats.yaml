@@ -1,0 +1,36 @@
+networks:
+  # small real-world networks
+  - "aucs"
+  - "ckm_physicians"
+  - "lazega"
+  # - "eu_transportation"
+  # - "eu_transport_klm"
+  # - "cannes"
+  # - "fmri74"
+  - "timik1q2009"
+
+  # large real-world networks
+  # - "arxiv_netscience_coauthorship"
+  # - "arxiv_netscience_coauthorship_math.oc"
+
+  # small synthetic (Erdos-Renyi)
+  - "er2"
+  - "er3"
+  # - "er5"
+  # - "er1"
+
+  # small synthetic (scale-free)
+  - "sf2"
+  - "sf3"
+  # - "sf5"
+  # - "sf1"
+
+  # toy networks (built into network-diffusion)
+  - "toy_network_piotr"
+  - "toy_network_cim"
+
+run:
+  experiment_type: "net_stats"
+
+logging:
+  out_dir: "./examples/net_stats"

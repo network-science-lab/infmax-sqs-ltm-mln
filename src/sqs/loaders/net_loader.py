@@ -32,7 +32,8 @@ from sqs.loaders.constants import (
     SF3,
     SF5,
     TIMIK1Q2009,
-    TOY_NETWORK,
+    TOY_NETWORK_CIM,
+    TOY_NETWORK_PIOTR,
 )
 from sqs.loaders.fmri74 import read_fmri74
 
@@ -274,8 +275,10 @@ def load_network(net_name: str) -> nd.MultilayerNetwork:
         return get_sf5_network()
     elif net_name == TIMIK1Q2009:
         return get_timik1q2009_network()
-    elif net_name == TOY_NETWORK:
-        return nd.mln.functions.get_toy_network_piotr()
+    elif net_name == TOY_NETWORK_CIM:
+        return nd.nets.get_toy_network_cim()
+    elif net_name == TOY_NETWORK_PIOTR:
+        return nd.nets.get_toy_network_piotr()
     elif net_name.startswith(MLN_2ND_STAGE_PREFIX):
         mpx_path = Path(net_name.replace("-", "/") + ".mpx")
         return nd.MultilayerNetwork.from_mpx(str(mpx_path))

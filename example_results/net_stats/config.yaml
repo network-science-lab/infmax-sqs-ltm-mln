@@ -1,0 +1,16 @@
+git_sha: b6f05d45aec19c6f7df99bb74741fe17218b231b
+logging:
+  out_dir: ./example_results/net_stats
+networks:
+- aucs
+- ckm_physicians
+- lazega
+- timik1q2009
+- er2
+- er3
+- sf2
+- sf3
+- toy_network_piotr
+- toy_network_cim
+run:
+  experiment_type: net_stats

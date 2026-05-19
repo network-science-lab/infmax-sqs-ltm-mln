@@ -6,16 +6,18 @@ readme = "README.md"
 authors = [
     { name = "Michał Czuba", email = "michal.czuba.1995@gmail.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
-    "network-diffusion>=0.15.0",
+    "gitpython>=3.1.50",
+    "network-diffusion==0.19.1",
     "networkx>=3.6.1",
     "pandas>=2.2.3",
+    "pyyaml>=6.0.3",
     "tqdm>=4.66.6",
 ]
 
 [project.scripts]
-sqs = "sqs:main"
+sqs = "sqs.main:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
