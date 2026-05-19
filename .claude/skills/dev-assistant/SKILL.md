@@ -1,0 +1,137 @@
+---
+name: dev-assistant
+description: >
+  Development assistant for infmax-sq-ltm-mln (Python + uv stack). Use this skill whenever
+  working on any development task in this repository — writing code, debugging, running experiments,
+  adding features, managing dependencies, handling data with DVC, or committing changes. Provides
+  coding conventions, active workflow guidance, and project standards.
+---
+
+## Session start
+
+At the start of every session, read `README.md` in the working directory root to get repo-specific
+context: purpose, setup instructions, usage, and available commands.
+
+---
+
+## Language
+
+Use **British English** in all text: comments, docstrings, commit messages, and documentation.
+
+---
+
+## Code style
+
+- **ASCII preferred** — avoid non-ASCII characters in source code, comments, docstrings, and commit
+  messages; use ASCII equivalents when they exist and are concise (e.g. `->` not `→`, `||` not `‖`,
+  `<=` not `≤`); Greek letters used as established mathematical symbols are allowed (e.g. `θ`, `λ`)
+- Line length: **100 characters**
+- **Type hints** are required on every function signature (arguments and return type)
+- **Docstrings**: reStructuredText style, Sphinx field directives
+  - Use `:param x:` and `:returns:` only — omit `:type x:`, `:rtype:`, and `:raises:`
+  - Every function parameter must have a `:param x:` entry; every non-None return must have `:returns:`
+  - Class attribute documentation: plain prose, no `:ivar:`
+  - One-liner docstrings stay on a single line
+  - Multiline docstrings: text on a new line after `"""`, with `:returns:` separated from `:param`
+    fields by a blank line
+- **File paths**: always `pathlib.Path`, never bare strings
+- **File I/O**: always specify `encoding="utf-8"` explicitly on every `open()` / `Path.open()`
+
+**Docstring examples:**
+
+```python
+# One-liner
+def retry_count(attempts: int) -> bool:
+    """Return True if the number of attempts has not exceeded the limit."""
+
+
+# Multiline
+def run_simulation(network: MultilayerNetwork, config: SimulationConfig) -> pd.DataFrame:
+    """
+    Run a Monte Carlo influence spread simulation on the given network.
+
+    Repeats the LTM propagation ``config.repetitions`` times and returns per-trial
+    activation counts aggregated across all layers.
+
+    :param network: Multilayer network on which the simulation is executed.
+    :param config: Simulation parameters including budget, repetitions, and random seed.
+
+    :returns: DataFrame with one row per trial and columns for each layer's activation count.
+    """
+```
+
+---
+
+## Available CLI tools
+
+| Tool         | Purpose                                                                            |
+| ------------ | ---------------------------------------------------------------------------------- |
+| `uv`         | Python environment and package management; running scripts and tests               |
+| `git`        | Version control                                                                    |
+| `dvc`        | Data versioning — tracking, pushing, and pulling datasets                          |
+| `pre-commit` | Code quality hooks — invoke via `uv run pre-commit`                                |
+
+---
+
+## Package management
+
+Always use `uv add <pkg>` to add dependencies. Never use `pip install`.
+
+---
+
+## New branch workflow
+
+Before making any other changes on a new branch:
+
+1. Check the current `version` in `pyproject.toml` on `master`
+2. Bump `version` in `pyproject.toml`
+3. Then proceed with the branch work
+
+---
+
+## Git workflow
+
+- Move files with `git mv`, never bare `mv`
+- Do not commit known-broken code — test before committing
+- Run `uv run pre-commit run --files <changed files>` before every commit
+- Commit messages: single short imperative line, no body; British English; ASCII-preferred
+  (Greek symbols allowed, but prefer `->` over `→` etc.)
+- No co-authorship trailers in commit messages
+
+---
+
+## DVC
+
+- Track a new data directory: `dvc add <path>`
+- Push data to remote: `dvc push`
+- Pull data: `dvc pull`
+
+---
+
+## Validation and data modelling
+
+Use **Pydantic v2** at system boundaries: config files, CLI input, and external data (files, API
+responses). For internal data, prefer plain dataclasses or typed dicts.
+
+Never use bare `assert` for input validation — `assert` is stripped by Python's `-O` flag. Use
+Pydantic validators or explicit `if`/`raise` instead. Reserve `assert` for tests only.
+
+- Cross-field validation: `@model_validator`
+- Single-field validation: `@field_validator`
+- Configuration: `model_config = ConfigDict(...)`, not inner `class Config`
+
+---
+
+## Unit testing
+
+When adding or modifying stable components (data structures, loaders, utilities), propose unit tests
+alongside the implementation. Simulation runners and experimental scripts are exempt.
+
+---
+
+## Security
+
+- Do not hardcode secrets, tokens, or passwords in source files — use environment variables or a
+  secrets manager
+- Do not log sensitive values (credentials, personal data, raw user input)
+- `rm -rf` and `git push --force` / `git push -f` are blocked at the harness level
