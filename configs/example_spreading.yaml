@@ -1,0 +1,31 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
+networks:
+  - "toy_network_piotr"
+  - "toy_network_cim"
+
+run:
+  experiment_type: "spreading"
+  out_dir: "./examples/spreading"
+
+spreading:
+  protocols:
+    - "OR"
+  mi_values:
+    - 0.15
+  seed_budgets:
+    - 0.10
+    - 0.20
+  repetitions: 3
+
+  seeding_schedule:
+    class: "MockSeedSchedule"
+    spreading_epochs: 20 # epochs of LTM spreading between consecutive seeding events
+    patience: 5 # stop a spreading phase early after this many no-change epochs
+    params: {} # class-specific constructor kwargs
+
+hydra:
+  run:
+    dir: ${run.out_dir}
