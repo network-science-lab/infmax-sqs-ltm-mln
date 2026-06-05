@@ -1,45 +1,28 @@
 """CLI entrypoint for the sqs simulation pipeline."""
 
-import argparse
+from pathlib import Path
+from typing import Any, cast
 
-import yaml
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
+from sqs import utils
 from sqs.pipeline import net_stats
-from sqs.utils import initialise_logger, logger
-
-
-def parse_args(*args: str) -> argparse.Namespace:
-    """
-    Parse command-line arguments.
-
-    :param args: argument strings (defaults to sys.argv when empty).
-
-    :returns: parsed namespace with a ``config`` path attribute.
-    """
-    parser = argparse.ArgumentParser(description="Run a simulation pipeline stage.")
-    parser.add_argument(
-        "config",
-        nargs="?",
-        default="scripts/configs/example_net_stats.yaml",
-        help="Path to the YAML pipeline config.",
-    )
-    return parser.parse_args(*args)
-
 
 _RUNNERS = {
     "net_stats": net_stats.run,
 }
 
+_CONFIGS_DIR = str(Path(__file__).parent.parent.parent / "configs")
 
-def main() -> None:
-    """Read a YAML config and dispatch to the appropriate pipeline stage."""
-    initialise_logger()
-    args = parse_args()
 
-    with open(args.config, "r", encoding="utf-8") as fh:
-        config = yaml.safe_load(fh)
+@hydra.main(version_base=None, config_path=_CONFIGS_DIR, config_name="example_net_stats")
+def main(cfg: DictConfig) -> None:
+    """Read a Hydra config and dispatch to the appropriate pipeline stage."""
+    utils.logger.info("git SHA: %s", utils.get_recent_git_sha())
 
-    logger.info("Loaded config: %s", config)
+    config = cast(dict[str, Any], OmegaConf.to_container(cfg, resolve=True))
+    utils.logger.info("Loaded config: %s", config)
 
     experiment_type = config["run"]["experiment_type"]
     runner = _RUNNERS.get(experiment_type)

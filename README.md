@@ -7,10 +7,10 @@ multilayer networks under the Linear Threshold Model (LTM).
 
 ```bash
 .
+├── configs/                ->  Hydra configs for each pipeline stage
+│   └── hydra/              ->  Hydra internal overrides (logging, etc.)
 ├── data/                   ->  DVC-tracked network datasets
 │   └── networks/           ->  raw multilayer network files
-├── scripts/
-│   └── configs/            ->  example YAML configs for each pipeline stage
 └── src/sqs/
     ├── loaders/            ->  multilayer network loaders
     ├── pipeline/           ->  pipeline stages (one module per stage)
@@ -33,12 +33,18 @@ multilayer networks under the Linear Threshold Model (LTM).
 ## Usage
 
 ```bash
-uv run sqs                                         # run with the default example config
-uv run sqs scripts/configs/example_net_stats.yaml  # run with an explicit config
+uv run sqs                                          # run with default config (example_net_stats)
+uv run sqs --config-name=<config>                   # pick a different config from configs/
+uv run sqs logging.out_dir=./my_output              # override a single value
 ```
 
-Each run saves a `config.yaml` (stamped with the HEAD git SHA) and stage-specific outputs to the
-directory specified by `logging.out_dir` in the config.
+The pipeline is configured via [Hydra](https://hydra.cc). Config files live in `configs/`; add a new
+YAML there for each experiment. Every run writes:
+
+- **`outputs/<date>/<time>/<job>.log`** — full log of the run (console output is mirrored here)
+- **`outputs/<date>/<time>/.hydra/`** — Hydra metadata and the composed config snapshot
+
+Stage-specific artefacts are written to the directory specified by `logging.out_dir` in the config.
 
 ## Development
 

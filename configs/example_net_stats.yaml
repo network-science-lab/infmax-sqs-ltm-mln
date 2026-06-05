@@ -1,3 +1,7 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
 networks:
   # small real-world networks
   - "aucs"
@@ -31,6 +35,8 @@ networks:
 
 run:
   experiment_type: "net_stats"
-
-logging:
   out_dir: "./examples/net_stats"
+
+hydra:
+  run:
+    dir: ${run.out_dir}

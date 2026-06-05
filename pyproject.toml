@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "gitpython>=3.1.50",
+    "hydra-core>=1.4.0.dev1",
     "network-diffusion==0.19.1",
     "networkx>=3.6.1",
     "pandas>=2.2.3",
