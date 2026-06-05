@@ -1,16 +1,24 @@
 [project]
 name = "sqs"
-version = "0.1.0"
+version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
     { name = "Michał Czuba", email = "michal.czuba.1995@gmail.com" }
 ]
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.12"
+dependencies = [
+    "gitpython>=3.1.50",
+    "hydra-core>=1.4.0.dev1",
+    "network-diffusion==0.19.1",
+    "networkx>=3.6.1",
+    "pandas>=2.2.3",
+    "pyyaml>=6.0.3",
+    "tqdm>=4.66.6",
+]
 
 [project.scripts]
-sqs = "sqs:main"
+sqs = "sqs.main:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
@@ -19,4 +27,8 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
 ]
+
+[tool.uv]
+prerelease = "allow"

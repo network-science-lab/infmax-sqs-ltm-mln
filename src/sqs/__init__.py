@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from sqs!")
+"""Sequential Seeding in Multilayer Networks with LTM."""
