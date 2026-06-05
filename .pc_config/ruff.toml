@@ -6,6 +6,7 @@ target-version = "py312"
 exclude = [
     "*/migrations/*",
     "*/tests/*",
+    "tests/**",
 ]
 
 # Enable Flake8-equivalent rule sets
