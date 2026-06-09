@@ -84,8 +84,9 @@ def run(config: dict[str, Any]) -> None:
     Execute the spreading pipeline stage.
 
     Iterates over the cartesian product of networks, protocols, mi values,
-    seed budgets, and repetitions; runs ``SequentialSimulator`` for each
-    combination; collects results; and writes a single CSV to ``out_dir``.
+    seed budgets, seeding schedules, and repetitions; runs
+    ``SequentialSimulator`` for each combination; collects results; and writes
+    a single CSV to ``out_dir``.
 
     :param config: Hydra-composed pipeline configuration dict.
     """
@@ -93,11 +94,9 @@ def run(config: dict[str, Any]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     sp = config["spreading"]
-    schedule_cfg: dict[str, Any] = sp["seeding_schedule"]
-    max_epochs: int = schedule_cfg["max_epochs"]
-    patience: int | None = schedule_cfg.get("patience")
     repetitions: int = sp["repetitions"]
-    ss_method: str = schedule_cfg["class"]
+    max_epochs: int = sp["max_epochs"]
+    patience: int | None = sp.get("patience")
 
     dl_cfg: dict[str, Any] = sp.get("detailed_logs", {})
     save_logs: bool = dl_cfg.get("save", False)
@@ -107,21 +106,32 @@ def run(config: dict[str, Any]) -> None:
     protocols: list[str] = sp["protocols"]
     mi_values: list[float] = sp["mi_values"]
     seed_budgets: list[float] = sp["seed_budgets"]
+    seeding_schedules: list[dict[str, Any]] = config["seeding_schedules"]
+    ss_names = [s["name"] for s in seeding_schedules]
+    if len(ss_names) != len(set(ss_names)):
+        duplicates = {n for n in ss_names if ss_names.count(n) > 1}
+        raise ValueError(f"Duplicate seeding_schedule names: {sorted(duplicates)}")
 
-    combinations = list(itertools.product(network_names, protocols, mi_values, seed_budgets))
+    combinations = list(
+        itertools.product(network_names, protocols, mi_values, seed_budgets, seeding_schedules)
+    )
     results: list[SimulationFullResult] = []
 
     with _log_sink(out_dir, save_logs, zip_logs) as write_log:
-        for net_name, protocol, mi_value, seed_budget in tqdm(
+        for net_name, protocol, mi_value, seed_budget, schedule_cfg in tqdm(
             combinations, desc="Experiments", colour="green"
         ):
+            ss_name: str = schedule_cfg["name"]
+
             logger.info("Loading network %s", net_name)
             net = load_network(net_name)
             total_actors = net.get_actors_num()
             n_seeds = max(1, round(seed_budget * total_actors))
 
             for rep in tqdm(
-                range(repetitions), desc=f"{net_name}/{protocol}/mi={mi_value}", leave=False
+                range(repetitions),
+                desc=f"{net_name}/{protocol}/mi={mi_value}/{ss_name}",
+                leave=False,
             ):
                 strategy = _resolve_strategy(schedule_cfg)
                 model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
@@ -142,20 +152,24 @@ def run(config: dict[str, Any]) -> None:
                         protocol=protocol,
                         seed_budget=seed_budget,
                         mi_value=mi_value,
-                        ss_method=ss_method,
+                        ss_method=ss_name,
                     )
                 )
 
-                log_name = f"{net_name}__{protocol}__mi{mi_value}__b{seed_budget}__r{rep:03d}.json"
+                log_name = (
+                    f"{net_name}__{protocol}__mi{mi_value}"
+                    f"__b{seed_budget}__{ss_name}__r{rep:03d}.json"
+                )
                 write_log(log_name, json.dumps(run_log.logger.get_detailed_logs()))
 
                 logger.debug(
-                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  gain=%.1f%%",
+                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s  gain=%.1f%%",
                     rep,
                     net_name,
                     protocol,
                     mi_value,
                     seed_budget,
+                    ss_name,
                     partial.gain,
                 )
 

@@ -13,22 +13,27 @@ run:
 spreading:
   protocols:
     - "OR"
+    - "AND"
   mi_values:
     - 0.15
   seed_budgets:
     - 0.10
     - 0.20
   repetitions: 3
-
-  seeding_schedule:
-    class: "MockSeedingStrategy"
-    max_epochs: 100 # hard upper bound on total simulation epochs
-    patience: 5 # stop once all seeds planted and this many no-change LTM epochs pass
-    params: {} # class-specific constructor kwargs
+  max_epochs: 100 # hard upper bound on total simulation epochs
+  patience: 5 # stop once all seeds planted and this many no-change LTM epochs pass
 
   detailed_logs:
     save: true # write per-run activation logs alongside results.csv
     zip: true # archive logs into detailed_logs.zip instead of individual JSON files
+
+seeding_schedules:
+  - name: "mock"
+    class: "MockSeedingStrategy"
+    params: {} # class-specific constructor kwargs
+  - name: "mock2"
+    class: "MockSeedingStrategy"
+    params: {} # class-specific constructor kwargs
 
 hydra:
   run:

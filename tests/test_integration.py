@@ -19,13 +19,16 @@ def spreading_config(tmp_path: Path) -> dict:
             "mi_values": [0.15],
             "seed_budgets": [0.1],
             "repetitions": 2,
-            "seeding_schedule": {
-                "class": "MockSeedingStrategy",
-                "max_epochs": 30,
-                "patience": 3,
-                "params": {},
-            },
+            "max_epochs": 30,
+            "patience": 3,
         },
+        "seeding_schedules": [
+            {
+                "name": "mock",
+                "class": "MockSeedingStrategy",
+                "params": {},
+            }
+        ],
     }
 
 
