@@ -32,29 +32,27 @@ class TestBuildSeedings:
 
 class TestBuildExpositions:
     def test_counts_active_nodes_per_epoch(self) -> None:
+        # epoch 0: full LTM snapshot — A active (2 layers, deduplicated), B inactive
+        # epoch 1: seeding epoch — C seeded (partial log, handled via seeding_events)
         local_stats = {
             0: [
                 {"node_name": "A", "layer_name": "l1", "new_state": "1"},
-                {
-                    "node_name": "A",
-                    "layer_name": "l2",
-                    "new_state": "1",
-                },  # same actor, different layer
+                {"node_name": "A", "layer_name": "l2", "new_state": "1"},
                 {"node_name": "B", "layer_name": "l1", "new_state": "0"},
             ],
             1: [
                 {"node_name": "C", "layer_name": "l1", "new_state": "1"},
             ],
         }
-        expositions = _build_expositions(local_stats, total_epochs=1)
+        expositions = _build_expositions(
+            local_stats, total_epochs=1, seeding_events={1: ["C"]}
+        )
         parts = expositions.split(";")
-        # epoch 0: nodes A (deduplicated across layers) => 1 unique active node
-        assert parts[0] == "1"
-        # epoch 1: node C => 1 unique active node
-        assert parts[1] == "1"
+        assert parts[0] == "1"  # epoch 0 (LTM): A newly active
+        assert parts[1] == "1"  # epoch 1 (seeding): C seeded
 
     def test_empty_epoch_yields_zero(self) -> None:
-        expositions = _build_expositions({}, total_epochs=2)
+        expositions = _build_expositions({}, total_epochs=2, seeding_events={})
         assert expositions == "0;0;0"
 
 

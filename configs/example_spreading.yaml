@@ -25,7 +25,7 @@ spreading:
 
   detailed_logs:
     save: true # write per-run activation logs alongside results.csv
-    zip: true # archive logs into detailed_logs.zip instead of individual JSON files
+    zip: false # archive logs into detailed_logs.zip instead of individual JSON files
 
 seeding_schedules:
   - name: "mock"

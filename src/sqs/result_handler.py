@@ -92,24 +92,45 @@ def _build_seedings(seeding_events: dict[int, list[str]], total_epochs: int) -> 
     return ";".join(segments)
 
 
-def _build_expositions(local_stats: dict[int, list[dict[str, str]]], total_epochs: int) -> str:
+def _build_expositions(
+    local_stats: dict[int, list[dict[str, str]]],
+    total_epochs: int,
+    seeding_events: dict[int, list[str]],
+) -> str:
     """
     Serialise per-epoch new-activation counts into the ``expositions`` column format.
 
-    Each segment (separated by ``;``) is the count of nodes that transitioned to
-    ACTIVE in that epoch.  Epochs with no activations produce ``"0"``.
+    Each segment (separated by ``;``) is the count of actors that first became ACTIVE
+    in that epoch.  For seeding epochs the count equals the number of seeds planted;
+    for LTM epochs it is derived from the cumulative active count in the full-state
+    snapshot.  Epochs with no new activations produce ``"0"``.
+
+    LTM epoch logs are full-state snapshots: every actor has exactly one entry with
+    either ``new_state="0"`` or ``new_state="1"``, so
+    ``len({active node_names})`` is a reliable cumulative active-actor count.
+    Seeding epoch logs are partial (only seeded actors), so their count comes from
+    ``seeding_events`` directly.
 
     :param local_stats: ``Logger._local_stats`` — mapping of epoch to the list of
         state-change dicts (``{"node_name": ..., "layer_name": ..., "new_state": ...}``).
     :param total_epochs: index of the last logged epoch.
+    :param seeding_events: mapping of seeding epoch index to seeded actor IDs, used
+        to distinguish seeding epochs from LTM epochs.
 
     :returns: the ``expositions`` column string.
     """
+    prev_active = 0
     segments: list[str] = []
     for epoch in range(total_epochs + 1):
-        epoch_log = local_stats.get(epoch, [])
-        active_nodes = {e["node_name"] for e in epoch_log if e["new_state"] == "1"}
-        segments.append(str(len(active_nodes)))
+        if epoch in seeding_events:
+            n = len(seeding_events[epoch])
+            prev_active += n
+        else:
+            epoch_log = local_stats.get(epoch, [])
+            active_count = len({e["node_name"] for e in epoch_log if e["new_state"] == "1"})
+            n = max(0, active_count - prev_active)
+            prev_active = max(prev_active, active_count)
+        segments.append(str(n))
     return ";".join(segments)
 
 
@@ -127,17 +148,18 @@ def extract_simulation_result(
     local_stats = run_log.logger.get_detailed_logs()
     total_epochs = max(local_stats.keys()) if local_stats else 0
 
-    # Count cumulative active actors per epoch to find simulation length and
-    # final exposed count.
     prev_active = 0
     simulation_length = 0
     for epoch in range(total_epochs + 1):
-        epoch_log = local_stats.get(epoch, [])
-        active_nodes = {e["node_name"] for e in epoch_log if e["new_state"] == "1"}
-        if len(active_nodes) > prev_active:
+        if epoch in run_log.seeding_events:
+            prev_active += len(run_log.seeding_events[epoch])
             simulation_length = epoch
-            prev_active = len(active_nodes)
-
+        else:
+            epoch_log = local_stats.get(epoch, [])
+            active_count = len({e["node_name"] for e in epoch_log if e["new_state"] == "1"})
+            if active_count > prev_active:
+                simulation_length = epoch
+                prev_active = active_count
     exposed_nb = prev_active
     seed_nb = sum(len(ids) for ids in run_log.seeding_events.values())
     unexposed_nb = total_actors - exposed_nb
@@ -150,7 +172,7 @@ def extract_simulation_result(
         seed_nb=seed_nb,
         exposed_nb=exposed_nb,
         unexposed_nb=unexposed_nb,
-        expositions=_build_expositions(local_stats, total_epochs),
+        expositions=_build_expositions(local_stats, total_epochs, run_log.seeding_events),
         seedings=_build_seedings(run_log.seeding_events, total_epochs),
     )
 

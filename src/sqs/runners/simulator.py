@@ -66,9 +66,10 @@ class SequentialSimulator(Simulator):
         """
         if patience is not None and patience <= 0:
             raise ValueError("Patience must be None or a positive integer.")
-        assert isinstance(self._network, MultilayerNetwork), (
-            "SequentialSimulator requires a MultilayerNetwork, not a TemporalNetwork."
-        )
+        if not isinstance(self._network, MultilayerNetwork):
+            raise TypeError(
+                "SequentialSimulator requires a MultilayerNetwork, not a TemporalNetwork."
+            )
 
         logger = Logger(str(self._model), str(self._network))
         seeding_events: dict[int, list[str]] = {}
@@ -83,12 +84,16 @@ class SequentialSimulator(Simulator):
         remaining: list[MLNetworkActor] = list(self._network.get_actors())
 
         for epoch in range(max_epochs):
+            # --- seeding epoch ---
+            # Strategy decides whether to plant seeds this epoch and which actors to use.
+            # Seeding and LTM steps are mutually exclusive: a seeding epoch skips LTM so
+            # that the network state seen by the strategy is always post-LTM, not mid-step.
             if seeds_planted < n_seeds:
                 batch = strategy.next_batch(self._network, remaining, epoch, stagnant)
                 batch = batch[: n_seeds - seeds_planted]  # cap to remaining budget
                 if batch:
                     for actor in batch:
-                        remaining.remove(actor)
+                        remaining.remove(actor)  # remove before seeding so strategy never re-seeds
                     seed_buffs: list[NUBuff] = [
                         NUBuff(
                             node_name=actor.actor_id,
@@ -101,17 +106,20 @@ class SequentialSimulator(Simulator):
                     seed_json = self._model.update_network(self._network, seed_buffs)
                     seeding_events[epoch] = [str(a.actor_id) for a in batch]
                     logger.add_global_stat(self._model.get_states_num(self._network))
-                    logger.add_local_stat(epoch, seed_json)
+                    logger.add_local_stat(epoch, seed_json)  # partial snapshot: seeded actors only
                     seeds_planted += len(batch)
                     stagnant = False
                     self.stopping_counter = 0
                     old_states = seed_buffs
                     continue
 
+            # --- LTM epoch ---
+            # network_evaluation_step returns the proposed next state for every node;
+            # update_network applies it and returns the full state snapshot for logging.
             new_states = self._model.network_evaluation_step(self._network)
             epoch_json = self._model.update_network(self._network, new_states)
             logger.add_global_stat(self._model.get_states_num(self._network))
-            logger.add_local_stat(epoch, epoch_json)
+            logger.add_local_stat(epoch, epoch_json)  # full snapshot: all actors
 
             if patience is not None:
                 self._update_counter(new_states, old_states)

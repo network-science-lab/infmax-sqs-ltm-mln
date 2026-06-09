@@ -133,6 +133,8 @@ def run(config: dict[str, Any]) -> None:
                 desc=f"{net_name}/{protocol}/mi={mi_value}/{ss_name}",
                 leave=False,
             ):
+                # Fresh strategy, model and network copy per repetition so that
+                # state from previous runs does not leak into the next one.
                 strategy = _resolve_strategy(schedule_cfg)
                 model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
                 sim = SequentialSimulator(model, net.copy())
@@ -156,6 +158,8 @@ def run(config: dict[str, Any]) -> None:
                     )
                 )
 
+                # Filename encodes all varied dimensions so logs from different
+                # combinations never collide inside the same zip / directory.
                 log_name = (
                     f"{net_name}__{protocol}__mi{mi_value}"
                     f"__b{seed_budget}__{ss_name}__r{rep:03d}.json"
