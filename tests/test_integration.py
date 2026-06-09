@@ -20,8 +20,8 @@ def spreading_config(tmp_path: Path) -> dict:
             "seed_budgets": [0.1],
             "repetitions": 2,
             "seeding_schedule": {
-                "class": "MockSeedSchedule",
-                "spreading_epochs": 5,
+                "class": "MockSeedingStrategy",
+                "max_epochs": 30,
                 "patience": 3,
                 "params": {},
             },

@@ -21,9 +21,9 @@ spreading:
   repetitions: 3
 
   seeding_schedule:
-    class: "MockSeedSchedule"
-    spreading_epochs: 20 # epochs of LTM spreading between consecutive seeding events
-    patience: 5 # stop a spreading phase early after this many no-change epochs
+    class: "MockSeedingStrategy"
+    max_epochs: 100 # hard upper bound on total simulation epochs
+    patience: 5 # stop once all seeds planted and this many no-change LTM epochs pass
     params: {} # class-specific constructor kwargs
 
 hydra:

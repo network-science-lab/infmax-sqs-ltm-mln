@@ -1,6 +1,7 @@
 """Pipeline stage: run sequential seeding experiments and save results to CSV."""
 
 import itertools
+import json
 from pathlib import Path
 from typing import Any
 
@@ -14,33 +15,34 @@ from sqs.result_handler import (
     extract_simulation_result,
     save_results,
 )
-from sqs.runners.seed_schedule import MockSeedSchedule
+from sqs.runners.seeding_strategy import MockSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
 logger = utils.logger
 
-_SCHEDULE_CLASSES = {
-    "MockSeedSchedule": MockSeedSchedule,
+_STRATEGY_CLASSES = {
+    "MockSeedingStrategy": MockSeedingStrategy,
 }
 
 _RESULTS_FILE = "results.csv"
+_DETAILED_LOGS_DIR = "detailed_logs"
 
 
-def _resolve_schedule(schedule_cfg: dict[str, Any]) -> Any:
+def _resolve_strategy(schedule_cfg: dict[str, Any]) -> Any:
     """
-    Instantiate a ``SeedSchedule`` from its config block.
+    Instantiate a ``SeedingStrategy`` from its config block.
 
-    :param schedule_cfg: dict with keys ``"class"`` (schedule class name) and
+    :param schedule_cfg: dict with keys ``"class"`` (strategy class name) and
         ``"params"`` (forwarded as kwargs to the constructor).
 
-    :returns: configured ``SeedSchedule`` instance.
+    :returns: configured ``SeedingStrategy`` instance.
     """
     cls_name: str = schedule_cfg["class"]
     params: dict[str, Any] = schedule_cfg.get("params", {})
-    cls = _SCHEDULE_CLASSES.get(cls_name)
+    cls = _STRATEGY_CLASSES.get(cls_name)
     if cls is None:
         raise ValueError(
-            f"Unknown seeding_schedule class {cls_name!r}. Available: {list(_SCHEDULE_CLASSES)}"
+            f"Unknown seeding_schedule class {cls_name!r}. Available: {list(_STRATEGY_CLASSES)}"
         )
     return cls(**params)
 
@@ -57,10 +59,12 @@ def run(config: dict[str, Any]) -> None:
     """
     out_dir = Path(config["run"]["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = out_dir / _DETAILED_LOGS_DIR
+    logs_dir.mkdir(exist_ok=True)
 
     sp = config["spreading"]
     schedule_cfg: dict[str, Any] = sp["seeding_schedule"]
-    spreading_epochs: int = schedule_cfg["spreading_epochs"]
+    max_epochs: int = schedule_cfg["max_epochs"]
     patience: int | None = schedule_cfg.get("patience")
     repetitions: int = sp["repetitions"]
     ss_method: str = schedule_cfg["class"]
@@ -84,14 +88,14 @@ def run(config: dict[str, Any]) -> None:
         for rep in tqdm(
             range(repetitions), desc=f"{net_name}/{protocol}/mi={mi_value}", leave=False
         ):
-            schedule = _resolve_schedule(schedule_cfg)
+            strategy = _resolve_strategy(schedule_cfg)
             model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
             sim = SequentialSimulator(model, net.copy())
 
             run_log = sim.perform_propagation(
                 n_seeds=n_seeds,
-                seed_schedule=schedule,
-                spreading_epochs=spreading_epochs,
+                strategy=strategy,
+                max_epochs=max_epochs,
                 patience=patience,
             )
 
@@ -106,6 +110,11 @@ def run(config: dict[str, Any]) -> None:
                     ss_method=ss_method,
                 )
             )
+
+            log_name = f"{net_name}__{protocol}__mi{mi_value}__b{seed_budget}__r{rep:03d}.json"
+            log_path = logs_dir / log_name
+            with log_path.open("w", encoding="utf-8") as fh:
+                json.dump(run_log.logger.get_detailed_logs(), fh)
 
             logger.debug(
                 "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  gain=%.1f%%",

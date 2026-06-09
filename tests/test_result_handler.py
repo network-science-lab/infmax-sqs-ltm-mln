@@ -6,7 +6,7 @@ from sqs.result_handler import (
     _build_seedings,
     extract_simulation_result,
 )
-from sqs.runners.seed_schedule import MockSeedSchedule
+from sqs.runners.seeding_strategy import MockSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
 
@@ -63,7 +63,7 @@ class TestExtractSimulationResult:
         """gain, seed_nb, exposed_nb, unexposed_nb must be internally consistent."""
         sim = SequentialSimulator(or_model, toy_net.copy())
         run_log = sim.perform_propagation(
-            n_seeds=2, seed_schedule=MockSeedSchedule(), spreading_epochs=10, patience=3
+            n_seeds=2, strategy=MockSeedingStrategy(), max_epochs=30, patience=3
         )
         total_actors = toy_net.get_actors_num()
         result = extract_simulation_result(run_log, total_actors)
@@ -76,7 +76,7 @@ class TestExtractSimulationResult:
         """Seedings must start with a bracket and contain the correct number of segments."""
         sim = SequentialSimulator(or_model, toy_net.copy())
         run_log = sim.perform_propagation(
-            n_seeds=2, seed_schedule=MockSeedSchedule(), spreading_epochs=5
+            n_seeds=2, strategy=MockSeedingStrategy(), max_epochs=20
         )
         result = extract_simulation_result(run_log, toy_net.get_actors_num())
         parts = result.seedings.split(";")
@@ -87,7 +87,7 @@ class TestExtractSimulationResult:
         """Expositions and seedings must have the same number of ';'-separated segments."""
         sim = SequentialSimulator(or_model, toy_net.copy())
         run_log = sim.perform_propagation(
-            n_seeds=2, seed_schedule=MockSeedSchedule(), spreading_epochs=5
+            n_seeds=2, strategy=MockSeedingStrategy(), max_epochs=20
         )
         result = extract_simulation_result(run_log, toy_net.get_actors_num())
         assert len(result.seedings.split(";")) == len(result.expositions.split(";"))
@@ -96,7 +96,7 @@ class TestExtractSimulationResult:
         """SimulationFullResult.from_partial must propagate all partial fields."""
         sim = SequentialSimulator(or_model, toy_net.copy())
         run_log = sim.perform_propagation(
-            n_seeds=1, seed_schedule=MockSeedSchedule(), spreading_epochs=3
+            n_seeds=1, strategy=MockSeedingStrategy(), max_epochs=10
         )
         partial = extract_simulation_result(run_log, toy_net.get_actors_num())
         full = SimulationFullResult.from_partial(
@@ -105,7 +105,7 @@ class TestExtractSimulationResult:
             protocol="OR",
             seed_budget=0.1,
             mi_value=0.15,
-            ss_method="MockSeedSchedule",
+            ss_method="MockSeedingStrategy",
         )
         assert full.gain == partial.gain
         assert full.seedings == partial.seedings

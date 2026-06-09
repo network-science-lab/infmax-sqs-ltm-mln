@@ -4,7 +4,7 @@ import pytest
 from network_diffusion.nets.toy_network_piotr import get_toy_network_piotr
 
 from sqs.models.mltm import SQSMLTModel
-from sqs.runners.seed_schedule import MockSeedSchedule
+from sqs.runners.seeding_strategy import MockSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
 
@@ -21,9 +21,9 @@ def or_model():
 
 
 @pytest.fixture()
-def mock_schedule():
-    """Return a MockSeedSchedule instance."""
-    return MockSeedSchedule()
+def mock_strategy():
+    """Return a MockSeedingStrategy instance."""
+    return MockSeedingStrategy()
 
 
 @pytest.fixture()
