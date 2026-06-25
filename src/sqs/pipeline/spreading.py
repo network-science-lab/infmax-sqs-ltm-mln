@@ -10,14 +10,15 @@ from typing import Any
 
 from tqdm import tqdm
 
-from sqs import utils
 from sqs.loaders.net_loader import load_network
-from sqs.models.mltm import SQSMLTModel
-from sqs.result_handler import (
+from sqs.misc import utils
+from sqs.misc.resources import monitor_resources
+from sqs.misc.result_handler import (
     SimulationFullResult,
     extract_simulation_result,
     save_results,
 )
+from sqs.models.mltm import SQSMLTModel
 from sqs.runners.seeding_strategy import MockSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
@@ -139,14 +140,15 @@ def run(config: dict[str, Any]) -> None:
                 model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
                 sim = SequentialSimulator(model, net.copy())
 
-                run_log = sim.perform_propagation(
-                    n_seeds=n_seeds,
-                    strategy=strategy,
-                    max_epochs=max_epochs,
-                    patience=patience,
-                )
+                with monitor_resources() as resource_usage:
+                    run_log = sim.perform_propagation(
+                        n_seeds=n_seeds,
+                        strategy=strategy,
+                        max_epochs=max_epochs,
+                        patience=patience,
+                    )
 
-                partial = extract_simulation_result(run_log, total_actors)
+                partial = extract_simulation_result(run_log, total_actors, n_seeds)
                 results.append(
                     SimulationFullResult.from_partial(
                         partial=partial,
@@ -155,6 +157,9 @@ def run(config: dict[str, Any]) -> None:
                         seed_budget=seed_budget,
                         mi_value=mi_value,
                         ss_method=ss_name,
+                        wall_seconds=resource_usage.wall_seconds,
+                        peak_cpu_mb=resource_usage.peak_cpu_mb,
+                        peak_gpu_mb=resource_usage.peak_gpu_mb,
                     )
                 )
 
@@ -166,8 +171,14 @@ def run(config: dict[str, Any]) -> None:
                 )
                 write_log(log_name, json.dumps(run_log.logger.get_detailed_logs()))
 
+                gpu_info = (
+                    f"  gpu={resource_usage.peak_gpu_mb:.1f}MB"
+                    if resource_usage.peak_gpu_mb is not None
+                    else ""
+                )
                 logger.debug(
-                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s  gain=%.1f%%",
+                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s"
+                    "  gain=%.1f%%  t=%.2fs  cpu=%.1fMB%s",
                     rep,
                     net_name,
                     protocol,
@@ -175,6 +186,9 @@ def run(config: dict[str, Any]) -> None:
                     seed_budget,
                     ss_name,
                     partial.gain,
+                    resource_usage.wall_seconds,
+                    resource_usage.peak_cpu_mb,
+                    gpu_info,
                 )
 
     out_path = out_dir / _RESULTS_FILE

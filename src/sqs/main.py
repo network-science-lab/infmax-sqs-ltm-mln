@@ -6,7 +6,7 @@ from typing import Any, cast
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from sqs import utils
+from sqs.misc import utils
 from sqs.pipeline import net_stats, spreading
 
 _RUNNERS = {

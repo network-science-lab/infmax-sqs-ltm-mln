@@ -5,7 +5,7 @@ from typing import Any
 
 from tqdm import tqdm
 
-from sqs import utils
+from sqs.misc import utils
 from sqs.loaders.net_loader import load_network
 
 logger = utils.logger
