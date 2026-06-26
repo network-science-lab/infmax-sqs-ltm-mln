@@ -4,7 +4,7 @@ import pytest
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
 from sqs.models.mltm import SQSMLTModel
-from sqs.runners.seeding_strategy import MockSeedingStrategy
+from sqs.runners.strategies import MockSeedingStrategy
 from sqs.runners.simulator import SequentialRunLog, SequentialSimulator
 
 

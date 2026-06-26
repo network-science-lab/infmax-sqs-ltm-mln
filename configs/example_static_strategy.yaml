@@ -1,0 +1,49 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
+networks:
+  - "toy_network_piotr"
+
+run:
+  experiment_type: "spreading"
+  out_dir: "./examples/static_strategy"
+
+spreading:
+  protocols:
+    - "OR"
+    - "AND"
+  mi_values:
+    - 0.3
+  seed_budgets:
+    - 0.20
+  repetitions: 2
+  max_epochs: 50
+  patience: 1
+
+  detailed_logs:
+    save: true
+    zip: false
+
+seeding_schedules:
+  - name: "ss_deg"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c"
+      mode: "SS"
+  - name: "sq_deg"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c"
+      mode: "SQ"
+      batch_size: 1
+  - name: "sq_r_deg"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c"
+      mode: "SQ_R"
+      batch_size: 1
+
+hydra:
+  run:
+    dir: ${run.out_dir}

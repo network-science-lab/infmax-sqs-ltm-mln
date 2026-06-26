@@ -9,7 +9,7 @@ from network_diffusion.models.mlt_model import MLTModel
 from network_diffusion.models.utils.types import NetworkUpdateBuffer as NUBuff
 from network_diffusion.simulator import Simulator
 
-from sqs.runners.seeding_strategy import SeedingStrategy
+from sqs.runners.strategies import SeedingStrategy
 
 
 @dataclass(frozen=True)

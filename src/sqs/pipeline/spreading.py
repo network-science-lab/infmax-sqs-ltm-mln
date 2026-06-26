@@ -19,13 +19,14 @@ from sqs.misc.result_handler import (
     save_results,
 )
 from sqs.models.mltm import SQSMLTModel
-from sqs.runners.seeding_strategy import MockSeedingStrategy
+from sqs.runners.strategies import MockSeedingStrategy, StaticSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
 logger = utils.logger
 
 _STRATEGY_CLASSES = {
     "MockSeedingStrategy": MockSeedingStrategy,
+    "StaticSeedingStrategy": StaticSeedingStrategy,
 }
 
 _RESULTS_FILE = "results.csv"

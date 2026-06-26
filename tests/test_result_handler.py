@@ -7,7 +7,7 @@ from sqs.misc.result_handler import (
     _compute_auc,
     extract_simulation_result,
 )
-from sqs.runners.seeding_strategy import MockSeedingStrategy
+from sqs.runners.strategies import MockSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
 
