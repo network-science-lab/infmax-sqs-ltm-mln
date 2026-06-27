@@ -140,7 +140,10 @@ class TestExtractSimulationResult:
             protocol="OR",
             seed_budget=0.1,
             mi_value=0.15,
-            ss_method="MockSeedingStrategy",
+            ss_method="mock_run",
+            ss_class="MockSeedingStrategy",
+            ss_selector="",
+            ss_mode="",
             wall_seconds=1.23,
             peak_cpu_mb=42.0,
             peak_gpu_mb=None,
@@ -151,6 +154,9 @@ class TestExtractSimulationResult:
         assert full.saved_seeds == partial.saved_seeds
         assert full.seedings == partial.seedings
         assert full.network == "toy_network_piotr"
+        assert full.ss_class == "MockSeedingStrategy"
+        assert full.ss_selector == ""
+        assert full.ss_mode == ""
         assert full.wall_seconds == 1.23
         assert full.peak_cpu_mb == 42.0
         assert full.peak_gpu_mb is None

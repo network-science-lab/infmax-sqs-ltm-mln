@@ -18,7 +18,7 @@ from sqs.misc.result_handler import (
     extract_simulation_result,
     save_results,
 )
-from sqs.models.mltm import SQSMLTModel
+from sqs.models.propagation.mltm import SQSMLTModel
 from sqs.runners.strategies import MockSeedingStrategy, StaticSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
@@ -124,6 +124,10 @@ def run(config: dict[str, Any]) -> None:
             combinations, desc="Experiments", colour="green"
         ):
             ss_name: str = schedule_cfg["name"]
+            ss_class: str = schedule_cfg["class"]
+            ss_params: dict[str, Any] = schedule_cfg.get("params", {})
+            ss_selector: str = ss_params.get("selector", "")
+            ss_mode: str = ss_params.get("mode", "")
 
             logger.info("Loading network %s", net_name)
             net = load_network(net_name)
@@ -158,6 +162,9 @@ def run(config: dict[str, Any]) -> None:
                         seed_budget=seed_budget,
                         mi_value=mi_value,
                         ss_method=ss_name,
+                        ss_class=ss_class,
+                        ss_selector=ss_selector,
+                        ss_mode=ss_mode,
                         wall_seconds=resource_usage.wall_seconds,
                         peak_cpu_mb=resource_usage.peak_cpu_mb,
                         peak_gpu_mb=resource_usage.peak_gpu_mb,

@@ -26,23 +26,61 @@ spreading:
     zip: false
 
 seeding_schedules:
-  - name: "ss_deg"
+  - name: "ss_deg_c"
     class: "StaticSeedingStrategy"
     params:
       selector: "deg-c"
       mode: "SS"
-  - name: "sq_deg"
+  - name: "ss_deg_c_d"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c-d"
+      mode: "SS"
+  - name: "ss_nghb_s"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-s"
+      mode: "SS"
+  - name: "ss_nghb_sd"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-sd"
+      mode: "SS"
+  - name: "ss_random"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "random"
+      mode: "SS"
+  - name: "ss_voterank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "voterank"
+      mode: "SS"
+  - name: "ss_pagerank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "pagerank"
+      mode: "SS"
+  - name: "sq_deg_c"
     class: "StaticSeedingStrategy"
     params:
       selector: "deg-c"
       mode: "SQ"
       batch_size: 1
-  - name: "sq_r_deg"
+  - name: "sq_r_deg_c"
     class: "StaticSeedingStrategy"
     params:
       selector: "deg-c"
       mode: "SQ_R"
       batch_size: 1
+  - name: "ss_ts_net"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "ts-net"
+      mode: "SS"
+      selector_params:
+        model_dir: "/Users/mateuszstolarski/repos/infmax-trainer-icm-mln/model/IN-832"
+        device: "cpu"
 
 hydra:
   run:

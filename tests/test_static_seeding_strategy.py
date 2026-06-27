@@ -6,7 +6,8 @@ import pytest
 from network_diffusion.models.mlt_model import MLTModel
 from network_diffusion.nets.toy_network_piotr import get_toy_network_piotr
 
-from sqs.models.mltm import SQSMLTModel
+from sqs.models.propagation.mltm import SQSMLTModel
+from sqs.runners.selectors import SELECTOR_CLASSES
 from sqs.runners.strategies import StaticSeedingStrategy
 
 
@@ -127,3 +128,24 @@ class TestRankingComputedOnce:
             for epoch in range(5):
                 strategy.next_batch(net, list(actors), epoch=epoch, stagnant=False)
         mock_aw.assert_called_once()
+
+
+_SELECTORS_NO_CHECKPOINT = [k for k in SELECTOR_CLASSES if k != "ts-net"]
+
+
+class TestAllSelectors:
+    @pytest.mark.parametrize("selector_key", _SELECTORS_NO_CHECKPOINT)
+    def test_selector_returns_nonempty_batch(self, net, actors, selector_key: str) -> None:
+        strategy = StaticSeedingStrategy(selector=selector_key, mode="SS")
+        batch = strategy.next_batch(net, list(actors), epoch=0, stagnant=False)
+        assert len(batch) > 0
+
+    @pytest.mark.parametrize("selector_key", _SELECTORS_NO_CHECKPOINT)
+    def test_selector_batch_actors_are_subset_of_remaining(
+        self, net, actors, selector_key: str
+    ) -> None:
+        remaining = list(actors)
+        strategy = StaticSeedingStrategy(selector=selector_key, mode="SS")
+        batch = strategy.next_batch(net, remaining, epoch=0, stagnant=False)
+        remaining_ids = {a.actor_id for a in remaining}
+        assert all(a.actor_id in remaining_ids for a in batch)

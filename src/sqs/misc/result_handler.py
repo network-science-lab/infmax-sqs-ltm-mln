@@ -34,6 +34,9 @@ class SimulationFullResult(SimulationPartialResult):
     seed_budget: float
     mi_value: float
     ss_method: str
+    ss_class: str
+    ss_selector: str
+    ss_mode: str
     wall_seconds: float
     peak_cpu_mb: float
     peak_gpu_mb: float | None
@@ -47,6 +50,9 @@ class SimulationFullResult(SimulationPartialResult):
         seed_budget: float,
         mi_value: float,
         ss_method: str,
+        ss_class: str,
+        ss_selector: str = "",
+        ss_mode: str = "",
         wall_seconds: float = 0.0,
         peak_cpu_mb: float = 0.0,
         peak_gpu_mb: float | None = None,
@@ -59,7 +65,12 @@ class SimulationFullResult(SimulationPartialResult):
         :param protocol: activation protocol (``"AND"`` or ``"OR"``).
         :param seed_budget: seed budget as a fraction of all actors (e.g. ``0.05``).
         :param mi_value: LTM activation threshold.
-        :param ss_method: name of the seed selection method.
+        :param ss_method: schedule name (unique identifier from ``seeding_schedules[*].name``).
+        :param ss_class: strategy class name (e.g. ``"StaticSeedingStrategy"``).
+        :param ss_selector: selector key (e.g. ``"deg-c"``); empty string when the strategy
+            has no selector parameter.
+        :param ss_mode: timing mode (e.g. ``"SS"``, ``"SQ"``, ``"SQ_R"``); empty string when
+            the strategy has no mode parameter.
         :param wall_seconds: wall-clock time of the simulation run in seconds.
         :param peak_cpu_mb: peak RSS increase of the process during the run in MB.
         :param peak_gpu_mb: peak GPU memory allocated during the run in MB; ``None``
@@ -83,6 +94,9 @@ class SimulationFullResult(SimulationPartialResult):
             seed_budget=seed_budget,
             mi_value=mi_value,
             ss_method=ss_method,
+            ss_class=ss_class,
+            ss_selector=ss_selector,
+            ss_mode=ss_mode,
             wall_seconds=wall_seconds,
             peak_cpu_mb=peak_cpu_mb,
             peak_gpu_mb=peak_gpu_mb,

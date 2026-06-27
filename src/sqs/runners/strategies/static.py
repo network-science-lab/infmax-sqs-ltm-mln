@@ -1,5 +1,7 @@
 """Static seeding strategy backed by a pre-computed actor ranking."""
 
+from typing import Any
+
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
@@ -21,15 +23,27 @@ class StaticSeedingStrategy:
       has stagnated (``stagnant=True``).
 
     ``batch_size`` is ignored for ``SS``.
+    ``selector_params`` forwards extra keyword arguments to the selector constructor,
+    which is needed for selectors that require configuration (e.g. ``TsNetSeedSelector``).
     """
 
-    def __init__(self, selector: str, mode: str, batch_size: int = 1) -> None:
+    def __init__(
+        self,
+        selector: str,
+        mode: str,
+        batch_size: int = 1,
+        selector_params: dict[str, Any] | None = None,
+    ) -> None:
         """
         Initialise the strategy.
 
         :param selector: key from ``SELECTOR_CLASSES`` identifying the ranking method.
         :param mode: timing mode -- ``"SS"``, ``"SQ"``, or ``"SQ_R"``.
         :param batch_size: number of actors to seed per epoch (``SQ`` and ``SQ_R`` only).
+        :param selector_params: extra keyword arguments forwarded verbatim to the selector
+            constructor.  Use for selectors that require configuration at instantiation
+            time (e.g. ``TsNetSeedSelector`` needs ``model_dir``, ``network_type``,
+            ``network_name``).  ``None`` is equivalent to ``{}``.
         """
         if selector not in SELECTOR_CLASSES:
             raise ValueError(
@@ -37,7 +51,7 @@ class StaticSeedingStrategy:
             )
         if mode not in {"SS", "SQ", "SQ_R"}:
             raise ValueError(f"Unknown mode {mode!r}. Expected one of: SS, SQ, SQ_R")
-        self._selector = SELECTOR_CLASSES[selector]()
+        self._selector = SELECTOR_CLASSES[selector](**(selector_params or {}))
         self._mode = mode
         self._batch_size = batch_size
         self._ranking: list[MLNetworkActor] | None = None
