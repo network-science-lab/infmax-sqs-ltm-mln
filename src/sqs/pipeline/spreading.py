@@ -19,14 +19,21 @@ from sqs.misc.result_handler import (
     save_results,
 )
 from sqs.models.propagation.mltm import SQSMLTModel
-from sqs.runners.strategies import MockSeedingStrategy, StaticSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
+from sqs.runners.strategies import (
+    AdaptiveSeedingStrategy,
+    MockSeedingStrategy,
+    StaticSeedingStrategy,
+    SubnetSeedingStrategy,
+)
 
 logger = utils.logger
 
 _STRATEGY_CLASSES = {
+    "AdaptiveSeedingStrategy": AdaptiveSeedingStrategy,
     "MockSeedingStrategy": MockSeedingStrategy,
     "StaticSeedingStrategy": StaticSeedingStrategy,
+    "SubnetSeedingStrategy": SubnetSeedingStrategy,
 }
 
 _RESULTS_FILE = "results.csv"

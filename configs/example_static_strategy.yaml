@@ -19,6 +19,9 @@ spreading:
     - 0.20
   repetitions: 2
   max_epochs: 50
+  # patience: consecutive LTM epochs with no new activations before stopping (or before an
+  # SQ_R revival seed).  Higher values extend run time: SQ_R needs ~n_seeds*(patience+2)
+  # total epochs, so keep max_epochs >= that bound.  SS and SQ modes are unaffected.
   patience: 1
 
   detailed_logs:
@@ -26,58 +29,150 @@ spreading:
     zip: false
 
 seeding_schedules:
-  - name: "ss_deg_c"
+  - name: "static_ss_deg_c"
     class: "StaticSeedingStrategy"
     params:
       selector: "deg-c"
       mode: "SS"
-  - name: "ss_deg_c_d"
+  - name: "static_ss_deg_c_d"
     class: "StaticSeedingStrategy"
     params:
       selector: "deg-c-d"
       mode: "SS"
-  - name: "ss_nghb_s"
+  - name: "static_ss_nghb_s"
     class: "StaticSeedingStrategy"
     params:
       selector: "nghb-s"
       mode: "SS"
-  - name: "ss_nghb_sd"
+  - name: "static_ss_nghb_sd"
     class: "StaticSeedingStrategy"
     params:
       selector: "nghb-sd"
       mode: "SS"
-  - name: "ss_random"
+  - name: "static_ss_random"
     class: "StaticSeedingStrategy"
     params:
       selector: "random"
       mode: "SS"
-  - name: "ss_voterank"
+  - name: "static_ss_voterank"
     class: "StaticSeedingStrategy"
     params:
       selector: "voterank"
       mode: "SS"
-  - name: "ss_pagerank"
+  - name: "static_ss_pagerank"
     class: "StaticSeedingStrategy"
     params:
       selector: "pagerank"
       mode: "SS"
-  - name: "sq_deg_c"
+  - name: "static_ss_ts_net"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "ts-net"
+      mode: "SS"
+      selector_params:
+        model_dir: "/Users/mateuszstolarski/repos/infmax-trainer-icm-mln/model/IN-832"
+        device: "cpu"
+
+  - name: "static_sq_deg_c"
     class: "StaticSeedingStrategy"
     params:
       selector: "deg-c"
       mode: "SQ"
       batch_size: 1
-  - name: "sq_r_deg_c"
+  - name: "static_sq_deg_c_d"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c-d"
+      mode: "SQ"
+      batch_size: 1
+  - name: "static_sq_nghb_s"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-s"
+      mode: "SQ"
+      batch_size: 1
+  - name: "static_sq_nghb_sd"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-sd"
+      mode: "SQ"
+      batch_size: 1
+  - name: "static_sq_random"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "random"
+      mode: "SQ"
+      batch_size: 1
+  - name: "static_sq_voterank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "voterank"
+      mode: "SQ"
+      batch_size: 1
+  - name: "static_sq_pagerank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "pagerank"
+      mode: "SQ"
+      batch_size: 1
+  - name: "static_sq_ts_net"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "ts-net"
+      mode: "SQ"
+      batch_size: 1
+      selector_params:
+        model_dir: "/Users/mateuszstolarski/repos/infmax-trainer-icm-mln/model/IN-832"
+        device: "cpu"
+
+  - name: "static_sq_r_deg_c"
     class: "StaticSeedingStrategy"
     params:
       selector: "deg-c"
       mode: "SQ_R"
       batch_size: 1
-  - name: "ss_ts_net"
+  - name: "static_sq_r_deg_c_d"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c-d"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "static_sq_r_nghb_s"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-s"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "static_sq_r_nghb_sd"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-sd"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "static_sq_r_random"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "random"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "static_sq_r_voterank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "voterank"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "static_sq_r_pagerank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "pagerank"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "static_sq_r_ts_net"
     class: "StaticSeedingStrategy"
     params:
       selector: "ts-net"
-      mode: "SS"
+      mode: "SQ_R"
+      batch_size: 1
       selector_params:
         model_dir: "/Users/mateuszstolarski/repos/infmax-trainer-icm-mln/model/IN-832"
         device: "cpu"

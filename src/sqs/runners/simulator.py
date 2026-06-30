@@ -1,5 +1,6 @@
 """Sequential seeding simulator and its result container."""
 
+import logging
 from dataclasses import dataclass, field
 
 from network_diffusion.logger import Logger
@@ -10,6 +11,8 @@ from network_diffusion.models.utils.types import NetworkUpdateBuffer as NUBuff
 from network_diffusion.simulator import Simulator
 
 from sqs.runners.strategies import SeedingStrategy
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -66,6 +69,21 @@ class SequentialSimulator(Simulator):
         """
         if patience is not None and patience <= 0:
             raise ValueError("Patience must be None or a positive integer.")
+        if patience is not None and patience > 1:
+            # In SQ_R mode each revival seed requires patience + 1 LTM epochs to confirm
+            # stagnation (1 epoch where stopping_counter resets because old_states == seed_buffs,
+            # then patience identical epochs).  The rough lower bound on total epochs needed is
+            # n_seeds * (patience + 2).  SS and SQ modes are unaffected.
+            sqr_min_epochs = n_seeds * (patience + 2)
+            if sqr_min_epochs > max_epochs:
+                _log.warning(
+                    "patience=%d with n_seeds=%d needs approximately %d epochs in SQ_R mode "
+                    "(max_epochs=%d); not all seeds may be planted before the epoch limit.",
+                    patience,
+                    n_seeds,
+                    sqr_min_epochs,
+                    max_epochs,
+                )
         if not isinstance(self._network, MultilayerNetwork):
             raise TypeError(
                 "SequentialSimulator requires a MultilayerNetwork, not a TemporalNetwork."

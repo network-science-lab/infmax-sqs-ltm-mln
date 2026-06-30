@@ -5,26 +5,25 @@ from typing import Any
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
-from sqs.runners.selectors import SELECTOR_CLASSES, is_already_active
+from sqs.runners.selectors import is_already_active
+from sqs.runners.strategies.base import BaseSeedingStrategy
 
 
-class StaticSeedingStrategy:
+class StaticSeedingStrategy(BaseSeedingStrategy):
     """
     Seed deployment strategy backed by a pre-computed actor ranking.
 
-    The ranking is computed once at epoch 0 via the chosen ``BaseSeedSelector``.
-    Subsequent calls to ``next_batch`` filter out actors that have already been
-    seeded (absent from ``remaining``) or have been organically activated by LTM
-    (detected via live network state).  The three timing modes are:
-
-    - ``SS``   -- single-shot: all candidates seeded at epoch 0, nothing after.
-    - ``SQ``   -- sequential: ``batch_size`` candidates seeded every epoch.
-    - ``SQ_R`` -- sequential with revival: seed only at epoch 0 or when spreading
-      has stagnated (``stagnant=True``).
+    The ranking is computed once on the first call to ``_candidates`` via the
+    chosen ``BaseSeedSelector``.  Subsequent calls filter out actors that have
+    already been seeded (absent from ``remaining``) or organically activated
+    by LTM (detected via live network state).  Timing modes are inherited from
+    ``BaseSeedingStrategy`` (SS, SQ, SQ_R).
 
     ``batch_size`` is ignored for ``SS``.
-    ``selector_params`` forwards extra keyword arguments to the selector constructor,
-    which is needed for selectors that require configuration (e.g. ``TsNetSeedSelector``).
+    ``selector_params`` forwards extra keyword arguments to the selector
+    constructor, which is needed for selectors that require configuration
+    (e.g. ``TsNetSeedSelector`` needs ``model_dir``, ``network_type``,
+    ``network_name``).  ``None`` is equivalent to ``{}``.
     """
 
     def __init__(
@@ -37,34 +36,28 @@ class StaticSeedingStrategy:
         """
         Initialise the strategy.
 
-        :param selector: key from ``SELECTOR_CLASSES`` identifying the ranking method.
+        :param selector: key from ``SELECTOR_CLASSES`` identifying the ranking
+            method.
         :param mode: timing mode -- ``"SS"``, ``"SQ"``, or ``"SQ_R"``.
-        :param batch_size: number of actors to seed per epoch (``SQ`` and ``SQ_R`` only).
-        :param selector_params: extra keyword arguments forwarded verbatim to the selector
-            constructor.  Use for selectors that require configuration at instantiation
-            time (e.g. ``TsNetSeedSelector`` needs ``model_dir``, ``network_type``,
-            ``network_name``).  ``None`` is equivalent to ``{}``.
+        :param batch_size: number of actors to seed per epoch (``SQ`` and
+            ``SQ_R`` only).
+        :param selector_params: extra keyword arguments forwarded verbatim to
+            the selector constructor.  ``None`` is equivalent to ``{}``.
         """
-        if selector not in SELECTOR_CLASSES:
-            raise ValueError(
-                f"Unknown selector {selector!r}. Available: {sorted(SELECTOR_CLASSES)}"
-            )
-        if mode not in {"SS", "SQ", "SQ_R"}:
-            raise ValueError(f"Unknown mode {mode!r}. Expected one of: SS, SQ, SQ_R")
-        self._selector = SELECTOR_CLASSES[selector](**(selector_params or {}))
-        self._mode = mode
-        self._batch_size = batch_size
+        super().__init__(selector, mode, batch_size, selector_params)
         self._ranking: list[MLNetworkActor] | None = None
 
     def _candidates(
-        self, remaining: list[MLNetworkActor], net: MultilayerNetwork
+        self, net: MultilayerNetwork, remaining: list[MLNetworkActor]
     ) -> list[MLNetworkActor]:
         """
         Return ranked actors eligible for seeding at this epoch.
 
-        Eligibility requires the actor to be present in ``remaining`` (not yet
-        seeded) and not already active in the live network (not organically
-        activated by LTM).  Order follows the pre-computed ranking.
+        The ranking is computed lazily on the first call, when all actors are
+        still inactive, so ``MLNetworkActor.__eq__`` matches ranking entries
+        to ``remaining`` entries correctly.  Eligibility requires the actor to
+        be present in ``remaining`` (not yet seeded) and not already active in
+        the live network (not organically activated by LTM).
 
         Actors are returned from ``self._ranking``, not from ``remaining``.
         Because the ranking is built at epoch 0 when all actors have
@@ -72,52 +65,18 @@ class StaticSeedingStrategy:
         to ``remaining`` entries by ``actor_id`` and ``_layers_states``,
         so the simulator's ``remaining.remove()`` call works correctly.
 
-        :param remaining: actors not yet seeded (passed in from ``next_batch``).
         :param net: live network used to check organic activation status.
+        :param remaining: actors not yet seeded (passed in from ``next_batch``).
 
-        :returns: subset of ``self._ranking`` eligible for seeding, in ranking order.
+        :returns: subset of ``self._ranking`` eligible for seeding, in ranking
+            order.
         """
+        if self._ranking is None:
+            self._ranking = self._selector.actorwise(net)
+
         remaining_ids = {a.actor_id for a in remaining}
         return [
             a
             for a in self._ranking  # type: ignore[union-attr]
             if a.actor_id in remaining_ids and not is_already_active(a, net)
         ]
-
-    def next_batch(
-        self,
-        net: MultilayerNetwork,
-        remaining: list[MLNetworkActor],
-        epoch: int,
-        stagnant: bool,
-    ) -> list[MLNetworkActor]:
-        """
-        Return actors to seed at this epoch according to the timing mode.
-
-        The ranking is computed lazily on the first call (epoch 0), when all
-        actors are still inactive, so ``MLNetworkActor.__eq__`` matches ranking
-        entries to ``remaining`` entries correctly.
-
-        :param net: current state of the multilayer network.
-        :param remaining: actors not yet used as seeds.
-        :param epoch: current epoch index.
-        :param stagnant: ``True`` when spreading has not produced new activations
-            for ``patience`` consecutive epochs.
-
-        :returns: actors to seed now; empty list means no seeding this epoch.
-        """
-        if self._ranking is None:
-            self._ranking = self._selector.actorwise(net)
-
-        if self._mode == "SS":
-            return self._candidates(remaining, net) if epoch == 0 else []
-
-        if self._mode == "SQ":
-            return self._candidates(remaining, net)[: self._batch_size]
-
-        if self._mode == "SQ_R":
-            if epoch > 0 and not stagnant:
-                return []
-            return self._candidates(remaining, net)[: self._batch_size]
-
-        raise ValueError(f"Unknown mode: {self._mode!r}")

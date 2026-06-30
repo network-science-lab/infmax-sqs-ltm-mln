@@ -5,13 +5,19 @@ from typing import Protocol, runtime_checkable
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
+from sqs.runners.strategies.adaptive import AdaptiveSeedingStrategy
+from sqs.runners.strategies.base import BaseSeedingStrategy
 from sqs.runners.strategies.mock import MockSeedingStrategy
 from sqs.runners.strategies.static import StaticSeedingStrategy
+from sqs.runners.strategies.subnet import SubnetSeedingStrategy
 
 __all__ = [
+    "AdaptiveSeedingStrategy",
+    "BaseSeedingStrategy",
     "MockSeedingStrategy",
     "SeedingStrategy",
     "StaticSeedingStrategy",
+    "SubnetSeedingStrategy",
 ]
 
 
