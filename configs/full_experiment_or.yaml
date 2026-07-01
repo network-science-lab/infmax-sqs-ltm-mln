@@ -1,0 +1,176 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
+networks:
+  - "er2"
+  - "er3"
+  - "er5"
+  - "sf2"
+  - "sf3"
+  - "sf5"
+  - "aucs"
+  - "ckm_physicians"
+  - "lazega"
+  - "l2_course_net_1"
+
+run:
+  experiment_type: "spreading"
+  out_dir: "./data/raw_results/full_or"
+
+spreading:
+  protocols:
+    - "OR"
+  mi_values:
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.7
+    - 0.8
+    - 0.9
+  seed_budgets:
+    - 0.05
+    - 0.10
+    - 0.15
+    - 0.20
+    - 0.25
+  repetitions: 30
+  max_epochs: 500
+  patience: 5
+
+  detailed_logs:
+    save: false
+    zip: false
+
+seeding_schedules:
+  # SS — full budget seeded at epoch 0
+  - name: "ss_deg_c"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c"
+      mode: "SS"
+  - name: "ss_deg_c_d"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c-d"
+      mode: "SS"
+  - name: "ss_nghb_s"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-s"
+      mode: "SS"
+  - name: "ss_nghb_sd"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-sd"
+      mode: "SS"
+  - name: "ss_random"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "random"
+      mode: "SS"
+  - name: "ss_voterank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "voterank"
+      mode: "SS"
+  - name: "ss_mds"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "mds"
+      mode: "SS"
+
+  # SQ — 1 seed per epoch, pre-ranked order
+  - name: "sq_deg_c"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c"
+      mode: "SQ"
+      batch_size: 1
+  - name: "sq_deg_c_d"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c-d"
+      mode: "SQ"
+      batch_size: 1
+  - name: "sq_nghb_s"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-s"
+      mode: "SQ"
+      batch_size: 1
+  - name: "sq_nghb_sd"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-sd"
+      mode: "SQ"
+      batch_size: 1
+  - name: "sq_random"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "random"
+      mode: "SQ"
+      batch_size: 1
+  - name: "sq_voterank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "voterank"
+      mode: "SQ"
+      batch_size: 1
+  - name: "sq_mds"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "mds"
+      mode: "SQ"
+      batch_size: 1
+
+  # SQ_R — 1 seed per epoch, revive after stagnation
+  - name: "sq_r_deg_c"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "sq_r_deg_c_d"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "deg-c-d"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "sq_r_nghb_s"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-s"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "sq_r_nghb_sd"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-sd"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "sq_r_random"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "random"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "sq_r_voterank"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "voterank"
+      mode: "SQ_R"
+      batch_size: 1
+  - name: "sq_r_mds"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "mds"
+      mode: "SQ_R"
+      batch_size: 1
+
+hydra:
+  run:
+    dir: ${run.out_dir}

@@ -37,6 +37,7 @@ class SimulationFullResult(SimulationPartialResult):
     ss_class: str
     ss_selector: str
     ss_mode: str
+    rep: int
     wall_seconds: float
     peak_cpu_mb: float
     peak_gpu_mb: float | None
@@ -53,6 +54,7 @@ class SimulationFullResult(SimulationPartialResult):
         ss_class: str,
         ss_selector: str = "",
         ss_mode: str = "",
+        rep: int = 0,
         wall_seconds: float = 0.0,
         peak_cpu_mb: float = 0.0,
         peak_gpu_mb: float | None = None,
@@ -97,6 +99,7 @@ class SimulationFullResult(SimulationPartialResult):
             ss_class=ss_class,
             ss_selector=ss_selector,
             ss_mode=ss_mode,
+            rep=rep,
             wall_seconds=wall_seconds,
             peak_cpu_mb=peak_cpu_mb,
             peak_gpu_mb=peak_gpu_mb,

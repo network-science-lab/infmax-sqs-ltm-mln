@@ -59,10 +59,10 @@ seeding_schedules:
     params:
       selector: "voterank"
       mode: "SS"
-  - name: "static_ss_pagerank"
+  - name: "static_ss_mds"
     class: "StaticSeedingStrategy"
     params:
-      selector: "pagerank"
+      selector: "mds"
       mode: "SS"
   - name: "static_ss_ts_net"
     class: "StaticSeedingStrategy"
@@ -109,10 +109,10 @@ seeding_schedules:
       selector: "voterank"
       mode: "SQ"
       batch_size: 1
-  - name: "static_sq_pagerank"
+  - name: "static_sq_mds"
     class: "StaticSeedingStrategy"
     params:
-      selector: "pagerank"
+      selector: "mds"
       mode: "SQ"
       batch_size: 1
   - name: "static_sq_ts_net"
@@ -161,10 +161,10 @@ seeding_schedules:
       selector: "voterank"
       mode: "SQ_R"
       batch_size: 1
-  - name: "static_sq_r_pagerank"
+  - name: "static_sq_r_mds"
     class: "StaticSeedingStrategy"
     params:
-      selector: "pagerank"
+      selector: "mds"
       mode: "SQ_R"
       batch_size: 1
   - name: "static_sq_r_ts_net"

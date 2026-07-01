@@ -1,0 +1,23 @@
+# Config for scripts/compare_methods.py — dry-run on example_static_strategy results.
+# Usage: uv run python scripts/compare_methods.py --config configs/compare_methods_example.yaml
+
+results_csv: "./examples/static_strategy/results.csv"
+out_dir: "./examples/stats"
+
+metrics:
+  - gain
+  - auc
+  - saved_seeds
+
+group_by:
+  - protocol
+  - network
+  - mi_value
+  - seed_budget
+
+comparisons:
+  mode: "all_pairs"
+  baseline: "ss_deg_c"
+
+alpha: 0.05
+alternative: "two-sided"

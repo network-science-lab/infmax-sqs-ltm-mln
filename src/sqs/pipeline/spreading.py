@@ -172,6 +172,7 @@ def run(config: dict[str, Any]) -> None:
                         ss_class=ss_class,
                         ss_selector=ss_selector,
                         ss_mode=ss_mode,
+                        rep=rep,
                         wall_seconds=resource_usage.wall_seconds,
                         peak_cpu_mb=resource_usage.peak_cpu_mb,
                         peak_gpu_mb=resource_usage.peak_gpu_mb,

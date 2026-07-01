@@ -1,6 +1,7 @@
 """Selector registry and network-state helpers for seeding strategies."""
 
 import logging
+from functools import partial
 
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
@@ -8,9 +9,9 @@ from network_diffusion.models.mlt_model import MLTModel
 from network_diffusion.seeding import (
     DegreeCentralityDiscountSelector,
     DegreeCentralitySelector,
+    DriverActorSelector,
     NeighbourhoodSizeDiscountSelector,
     NeighbourhoodSizeSelector,
-    PageRankMLNSeedSelector,
     RandomSeedSelector,
     VoteRankMLNSeedSelector,
 )
@@ -24,7 +25,7 @@ SELECTOR_CLASSES: dict[str, type] = {
     "nghb-sd": NeighbourhoodSizeDiscountSelector,
     "random": RandomSeedSelector,
     "voterank": VoteRankMLNSeedSelector,
-    "pagerank": PageRankMLNSeedSelector,
+    "mds": partial(DriverActorSelector, method=None),  # method required; None = pure MDS
 }
 
 try:

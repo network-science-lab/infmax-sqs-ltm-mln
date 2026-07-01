@@ -144,6 +144,7 @@ class TestExtractSimulationResult:
             ss_class="MockSeedingStrategy",
             ss_selector="",
             ss_mode="",
+            rep=7,
             wall_seconds=1.23,
             peak_cpu_mb=42.0,
             peak_gpu_mb=None,
@@ -157,6 +158,7 @@ class TestExtractSimulationResult:
         assert full.ss_class == "MockSeedingStrategy"
         assert full.ss_selector == ""
         assert full.ss_mode == ""
+        assert full.rep == 7
         assert full.wall_seconds == 1.23
         assert full.peak_cpu_mb == 42.0
         assert full.peak_gpu_mb is None
