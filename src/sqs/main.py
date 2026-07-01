@@ -7,10 +7,11 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from sqs import utils
-from sqs.pipeline import net_stats
+from sqs.pipeline import net_stats, spreading
 
 _RUNNERS = {
     "net_stats": net_stats.run,
+    "spreading": spreading.run,
 }
 
 _CONFIGS_DIR = str(Path(__file__).parent.parent.parent / "configs")

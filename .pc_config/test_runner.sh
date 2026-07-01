@@ -15,5 +15,5 @@ else
     echo "It's a Django-free project :) Enjoy pure pytest."
     # We call pytest as the Python module (not as a registered application, which is called just as
     # `pytest`) to exclude likelihood that we invoke an incorrect one (e.g. installed by the OS)
-    python -m pytest -v; ret=$?; [ $ret = 5 ] && exit 0 || exit $ret
+    uv run python -m pytest -v; ret=$?; [ $ret = 5 ] && exit 0 || exit $ret
 fi

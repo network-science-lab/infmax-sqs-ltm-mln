@@ -1,0 +1,182 @@
+"""Pipeline stage: run sequential seeding experiments and save results to CSV."""
+
+import itertools
+import json
+import zipfile
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+from tqdm import tqdm
+
+from sqs import utils
+from sqs.loaders.net_loader import load_network
+from sqs.models.mltm import SQSMLTModel
+from sqs.result_handler import (
+    SimulationFullResult,
+    extract_simulation_result,
+    save_results,
+)
+from sqs.runners.seeding_strategy import MockSeedingStrategy
+from sqs.runners.simulator import SequentialSimulator
+
+logger = utils.logger
+
+_STRATEGY_CLASSES = {
+    "MockSeedingStrategy": MockSeedingStrategy,
+}
+
+_RESULTS_FILE = "results.csv"
+_DETAILED_LOGS_DIR = "detailed_logs"
+
+
+@contextmanager
+def _log_sink(
+    out_dir: Path, save: bool, use_zip: bool
+) -> Generator[Callable[[str, str], Any], None, None]:
+    """
+    Context manager that yields a ``write(name, data)`` callable.
+
+    When ``save=False`` the callable is a no-op.  When ``use_zip=True`` logs
+    are written into ``detailed_logs.zip`` inside ``out_dir``; otherwise each
+    log is written as an individual file under ``detailed_logs/``.
+
+    :param out_dir: directory where output artefacts are written.
+    :param save: whether to persist detailed logs at all.
+    :param use_zip: archive logs into a single zip instead of separate files.
+    """
+    if not save:
+        yield lambda _name, _data: None
+        return
+    if use_zip:
+        with zipfile.ZipFile(
+            out_dir / "detailed_logs.zip", "w", compression=zipfile.ZIP_DEFLATED
+        ) as zf:
+            yield zf.writestr
+    else:
+        logs_dir = out_dir / _DETAILED_LOGS_DIR
+        logs_dir.mkdir(exist_ok=True)
+        yield lambda name, data: (logs_dir / name).write_text(data, encoding="utf-8")
+
+
+def _resolve_strategy(schedule_cfg: dict[str, Any]) -> Any:
+    """
+    Instantiate a ``SeedingStrategy`` from its config block.
+
+    :param schedule_cfg: dict with keys ``"class"`` (strategy class name) and
+        ``"params"`` (forwarded as kwargs to the constructor).
+
+    :returns: configured ``SeedingStrategy`` instance.
+    """
+    cls_name: str = schedule_cfg["class"]
+    params: dict[str, Any] = schedule_cfg.get("params", {})
+    cls = _STRATEGY_CLASSES.get(cls_name)
+    if cls is None:
+        raise ValueError(
+            f"Unknown seeding_schedule class {cls_name!r}. Available: {list(_STRATEGY_CLASSES)}"
+        )
+    return cls(**params)
+
+
+def run(config: dict[str, Any]) -> None:
+    """
+    Execute the spreading pipeline stage.
+
+    Iterates over the cartesian product of networks, protocols, mi values,
+    seed budgets, seeding schedules, and repetitions; runs
+    ``SequentialSimulator`` for each combination; collects results; and writes
+    a single CSV to ``out_dir``.
+
+    :param config: Hydra-composed pipeline configuration dict.
+    """
+    out_dir = Path(config["run"]["out_dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    sp = config["spreading"]
+    repetitions: int = sp["repetitions"]
+    max_epochs: int = sp["max_epochs"]
+    patience: int | None = sp.get("patience")
+
+    dl_cfg: dict[str, Any] = sp.get("detailed_logs", {})
+    save_logs: bool = dl_cfg.get("save", False)
+    zip_logs: bool = dl_cfg.get("zip", False)
+
+    network_names: list[str] = config["networks"]
+    protocols: list[str] = sp["protocols"]
+    mi_values: list[float] = sp["mi_values"]
+    seed_budgets: list[float] = sp["seed_budgets"]
+    seeding_schedules: list[dict[str, Any]] = config["seeding_schedules"]
+    ss_names = [s["name"] for s in seeding_schedules]
+    if len(ss_names) != len(set(ss_names)):
+        duplicates = {n for n in ss_names if ss_names.count(n) > 1}
+        raise ValueError(f"Duplicate seeding_schedule names: {sorted(duplicates)}")
+
+    combinations = list(
+        itertools.product(network_names, protocols, mi_values, seed_budgets, seeding_schedules)
+    )
+    results: list[SimulationFullResult] = []
+
+    with _log_sink(out_dir, save_logs, zip_logs) as write_log:
+        for net_name, protocol, mi_value, seed_budget, schedule_cfg in tqdm(
+            combinations, desc="Experiments", colour="green"
+        ):
+            ss_name: str = schedule_cfg["name"]
+
+            logger.info("Loading network %s", net_name)
+            net = load_network(net_name)
+            total_actors = net.get_actors_num()
+            n_seeds = max(1, round(seed_budget * total_actors))
+
+            for rep in tqdm(
+                range(repetitions),
+                desc=f"{net_name}/{protocol}/mi={mi_value}/{ss_name}",
+                leave=False,
+            ):
+                # Fresh strategy, model and network copy per repetition so that
+                # state from previous runs does not leak into the next one.
+                strategy = _resolve_strategy(schedule_cfg)
+                model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
+                sim = SequentialSimulator(model, net.copy())
+
+                run_log = sim.perform_propagation(
+                    n_seeds=n_seeds,
+                    strategy=strategy,
+                    max_epochs=max_epochs,
+                    patience=patience,
+                )
+
+                partial = extract_simulation_result(run_log, total_actors)
+                results.append(
+                    SimulationFullResult.from_partial(
+                        partial=partial,
+                        network=net_name,
+                        protocol=protocol,
+                        seed_budget=seed_budget,
+                        mi_value=mi_value,
+                        ss_method=ss_name,
+                    )
+                )
+
+                # Filename encodes all varied dimensions so logs from different
+                # combinations never collide inside the same zip / directory.
+                log_name = (
+                    f"{net_name}__{protocol}__mi{mi_value}"
+                    f"__b{seed_budget}__{ss_name}__r{rep:03d}.json"
+                )
+                write_log(log_name, json.dumps(run_log.logger.get_detailed_logs()))
+
+                logger.debug(
+                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s  gain=%.1f%%",
+                    rep,
+                    net_name,
+                    protocol,
+                    mi_value,
+                    seed_budget,
+                    ss_name,
+                    partial.gain,
+                )
+
+    out_path = out_dir / _RESULTS_FILE
+    save_results(results, out_path)
+    logger.info("Saved %d results to %s", len(results), out_path)
