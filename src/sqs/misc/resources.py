@@ -15,7 +15,9 @@ class ResourceUsage:
 
     device: str
     wall_seconds: float
-    peak_cpu_mb: float
+    # Net RSS change (after - before) in MB; large intermediate allocations freed
+    # before the context manager exits are not captured.
+    rss_delta_mb: float
     # torch.cuda.max_memory_allocated / 1e6; None on CPU-only runs
     peak_gpu_mb: float | None
 
@@ -41,13 +43,13 @@ def monitor_resources(device: str = "cpu") -> Generator[ResourceUsage, None, Non
         torch.cuda.reset_peak_memory_stats(device)
 
     t0 = time.perf_counter()
-    usage = ResourceUsage(device=device, wall_seconds=0.0, peak_cpu_mb=0.0, peak_gpu_mb=None)
+    usage = ResourceUsage(device=device, wall_seconds=0.0, rss_delta_mb=0.0, peak_gpu_mb=None)
 
     try:
         yield usage
     finally:
         usage.wall_seconds = time.perf_counter() - t0
-        usage.peak_cpu_mb = (proc.memory_info().rss - mem_before) / 1e6
+        usage.rss_delta_mb = (proc.memory_info().rss - mem_before) / 1e6
         if device.startswith("cuda"):
             import torch  # noqa: PLC0415
 

@@ -6,7 +6,6 @@ from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 from network_diffusion.models.mlt_model import MLTModel
 
-from sqs.runners.selectors import is_already_active
 from sqs.runners.strategies.base import BaseSeedingStrategy
 
 
@@ -68,6 +67,15 @@ class AdaptiveSeedingStrategy(BaseSeedingStrategy):
         """
         Compute the activation potential of an actor as active-neighbour ratio.
 
+        The score aggregates active neighbours across *all* layers, which is a
+        reasonable heuristic under the ``OR`` protocol (any-layer threshold
+        suffices).  Under the ``AND`` protocol an actor only activates when its
+        per-layer threshold is met in *every* layer independently, so an actor
+        with active neighbours concentrated in a single layer can score highly
+        here while being far from its ``AND`` threshold.  The score is used as
+        a cheap proxy in both cases; bear this approximation in mind when
+        interpreting results from ``AND``-protocol runs.
+
         :param actor: candidate actor to score.
         :param net: current state of the multilayer network.
 
@@ -89,10 +97,11 @@ class AdaptiveSeedingStrategy(BaseSeedingStrategy):
         self, net: MultilayerNetwork, remaining: list[MLNetworkActor]
     ) -> list[MLNetworkActor]:
         """
-        Return remaining, inactive actors that border at least one active node.
+        Return actors from ``remaining`` that border at least one active node.
 
-        Actors are taken directly from ``remaining`` so the objects are
-        compatible with the simulator's ``remaining.remove()`` call.
+        All actors in ``remaining`` are guaranteed inactive (the simulator
+        prunes organically-activated actors after every LTM step), so no
+        additional active-state check is needed here.
 
         :param net: current state of the multilayer network.
         :param remaining: actors not yet used as seeds.
@@ -102,8 +111,6 @@ class AdaptiveSeedingStrategy(BaseSeedingStrategy):
         """
         result = []
         for actor in remaining:
-            if is_already_active(actor, net):
-                continue
             on_frontier = any(
                 any(
                     net.layers[layer].nodes[nb].get("status") == MLTModel.ACTIVE_STATE

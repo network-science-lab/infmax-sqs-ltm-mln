@@ -26,6 +26,8 @@ SELECTOR_CLASSES: dict[str, type] = {
     "random": RandomSeedSelector,
     "voterank": VoteRankMLNSeedSelector,
     "mds": partial(DriverActorSelector, method=None),  # method required; None = pure MDS
+    # MDS with degree centrality as secondary ranking criterion for tie-breaking.
+    "mds+deg": lambda **kw: DriverActorSelector(method=DegreeCentralitySelector(), **kw),
 }
 
 try:

@@ -39,7 +39,7 @@ class SimulationFullResult(SimulationPartialResult):
     ss_mode: str
     rep: int
     wall_seconds: float
-    peak_cpu_mb: float
+    rss_delta_mb: float
     peak_gpu_mb: float | None
 
     @classmethod
@@ -56,7 +56,7 @@ class SimulationFullResult(SimulationPartialResult):
         ss_mode: str = "",
         rep: int = 0,
         wall_seconds: float = 0.0,
-        peak_cpu_mb: float = 0.0,
+        rss_delta_mb: float = 0.0,
         peak_gpu_mb: float | None = None,
     ) -> "SimulationFullResult":
         """
@@ -74,7 +74,7 @@ class SimulationFullResult(SimulationPartialResult):
         :param ss_mode: timing mode (e.g. ``"SS"``, ``"SQ"``, ``"SQ_R"``); empty string when
             the strategy has no mode parameter.
         :param wall_seconds: wall-clock time of the simulation run in seconds.
-        :param peak_cpu_mb: peak RSS increase of the process during the run in MB.
+        :param rss_delta_mb: peak RSS increase of the process during the run in MB.
         :param peak_gpu_mb: peak GPU memory allocated during the run in MB; ``None``
             when running on CPU.
 
@@ -101,7 +101,7 @@ class SimulationFullResult(SimulationPartialResult):
             ss_mode=ss_mode,
             rep=rep,
             wall_seconds=wall_seconds,
-            peak_cpu_mb=peak_cpu_mb,
+            rss_delta_mb=rss_delta_mb,
             peak_gpu_mb=peak_gpu_mb,
         )
 

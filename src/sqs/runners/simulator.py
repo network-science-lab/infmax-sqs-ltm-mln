@@ -45,7 +45,7 @@ class SequentialSimulator(Simulator):
         self,
         n_seeds: int,
         strategy: SeedingStrategy,
-        max_epochs: int,
+        max_epochs: int | None,
         patience: int | None = None,
     ) -> SequentialRunLog:
         """
@@ -55,27 +55,40 @@ class SequentialSimulator(Simulator):
         it returns a non-empty batch, those actors are planted and the epoch is
         logged as a seeding event (no LTM step runs that epoch).  Otherwise one
         LTM step executes.  The epoch counter is continuous across the whole
-        simulation.  The loop terminates when all seeds have been planted and
-        stagnation is detected, or after ``max_epochs`` epochs regardless.
+        simulation.
+
+        The loop terminates when all seeds have been planted and stagnation is
+        detected, or after ``max_epochs`` epochs regardless.  Pass
+        ``max_epochs=None`` to remove the hard cap; ``patience`` must then be
+        set or the loop has no termination signal.  ``SQ_R`` schedules with
+        large seed budgets should use ``max_epochs=None`` to avoid being cut off
+        before all seeds are planted -- LTM activation is monotone, so a run
+        with ``patience`` set is guaranteed to terminate at a real fixed point.
 
         :param n_seeds: total number of seeds to plant.
         :param strategy: decides which actors to seed and when.
-        :param max_epochs: hard upper bound on the total number of epochs.
+        :param max_epochs: hard upper bound on the total number of epochs, or
+            ``None`` for an unbounded run (requires ``patience`` to be set).
         :param patience: stop the simulation once all seeds are planted and this
             many consecutive LTM epochs produce no new activations; ``None``
-            disables early stopping (loop runs to ``max_epochs``).
+            disables early stopping.
 
         :returns: ``SequentialRunLog`` containing the Logger and seeding timeline.
         """
         if patience is not None and patience <= 0:
             raise ValueError("Patience must be None or a positive integer.")
+        if max_epochs is None and patience is None:
+            raise ValueError(
+                "At least one of max_epochs or patience must be set; "
+                "an unbounded run with no stagnation check would loop forever."
+            )
         if patience is not None and patience > 1:
             # In SQ_R mode each revival seed requires patience + 1 LTM epochs to confirm
             # stagnation (1 epoch where stopping_counter resets because old_states == seed_buffs,
             # then patience identical epochs).  The rough lower bound on total epochs needed is
             # n_seeds * (patience + 2).  SS and SQ modes are unaffected.
             sqr_min_epochs = n_seeds * (patience + 2)
-            if sqr_min_epochs > max_epochs:
+            if max_epochs is not None and sqr_min_epochs > max_epochs:
                 _log.warning(
                     "patience=%d with n_seeds=%d needs approximately %d epochs in SQ_R mode "
                     "(max_epochs=%d); not all seeds may be planted before the epoch limit.",
@@ -101,7 +114,8 @@ class SequentialSimulator(Simulator):
 
         remaining: list[MLNetworkActor] = list(self._network.get_actors())
 
-        for epoch in range(max_epochs):
+        epoch = 0
+        while max_epochs is None or epoch < max_epochs:
             # --- seeding epoch ---
             # Strategy decides whether to plant seeds this epoch and which actors to use.
             # Seeding and LTM steps are mutually exclusive: a seeding epoch skips LTM so
@@ -129,6 +143,7 @@ class SequentialSimulator(Simulator):
                     stagnant = False
                     self.stopping_counter = 0
                     old_states = seed_buffs
+                    epoch += 1
                     continue
 
             # --- LTM epoch ---
@@ -139,6 +154,18 @@ class SequentialSimulator(Simulator):
             logger.add_global_stat(self._model.get_states_num(self._network))
             logger.add_local_stat(epoch, epoch_json)  # full snapshot: all actors
 
+            # Prune actors from remaining that organically activated this epoch.
+            # Keeping remaining accurate eliminates the need for is_already_active()
+            # checks inside every strategy on every call.
+            remaining_ids = {a.actor_id for a in remaining}
+            newly_active = {
+                buff.node_name
+                for buff in new_states
+                if buff.new_state == MLTModel.ACTIVE_STATE and buff.node_name in remaining_ids
+            }
+            if newly_active:
+                remaining = [a for a in remaining if a.actor_id not in newly_active]
+
             if patience is not None:
                 self._update_counter(new_states, old_states)
                 stagnant = self.stopping_counter >= patience
@@ -146,6 +173,8 @@ class SequentialSimulator(Simulator):
                     old_states = new_states
                 if seeds_planted >= n_seeds and stagnant:
                     break
+
+            epoch += 1
 
         logger.convert_logs(self._model.get_allowed_states(self._network))
         return SequentialRunLog(logger=logger, seeding_events=seeding_events)

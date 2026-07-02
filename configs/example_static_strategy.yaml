@@ -64,15 +64,6 @@ seeding_schedules:
     params:
       selector: "mds"
       mode: "SS"
-  - name: "static_ss_ts_net"
-    class: "StaticSeedingStrategy"
-    params:
-      selector: "ts-net"
-      mode: "SS"
-      selector_params:
-        model_dir: "/Users/mateuszstolarski/repos/infmax-trainer-icm-mln/model/IN-832"
-        device: "cpu"
-
   - name: "static_sq_deg_c"
     class: "StaticSeedingStrategy"
     params:
@@ -115,16 +106,6 @@ seeding_schedules:
       selector: "mds"
       mode: "SQ"
       batch_size: 1
-  - name: "static_sq_ts_net"
-    class: "StaticSeedingStrategy"
-    params:
-      selector: "ts-net"
-      mode: "SQ"
-      batch_size: 1
-      selector_params:
-        model_dir: "/Users/mateuszstolarski/repos/infmax-trainer-icm-mln/model/IN-832"
-        device: "cpu"
-
   - name: "static_sq_r_deg_c"
     class: "StaticSeedingStrategy"
     params:
@@ -167,16 +148,6 @@ seeding_schedules:
       selector: "mds"
       mode: "SQ_R"
       batch_size: 1
-  - name: "static_sq_r_ts_net"
-    class: "StaticSeedingStrategy"
-    params:
-      selector: "ts-net"
-      mode: "SQ_R"
-      batch_size: 1
-      selector_params:
-        model_dir: "/Users/mateuszstolarski/repos/infmax-trainer-icm-mln/model/IN-832"
-        device: "cpu"
-
 hydra:
   run:
     dir: ${run.out_dir}

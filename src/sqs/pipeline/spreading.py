@@ -2,12 +2,14 @@
 
 import itertools
 import json
+import random
 import zipfile
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from tqdm import tqdm
 
 from sqs.loaders.net_loader import load_network
@@ -34,6 +36,20 @@ _STRATEGY_CLASSES = {
     "MockSeedingStrategy": MockSeedingStrategy,
     "StaticSeedingStrategy": StaticSeedingStrategy,
     "SubnetSeedingStrategy": SubnetSeedingStrategy,
+}
+
+# Selectors whose ranking depends only on network topology and can therefore be
+# cached across repetitions.  RandomSeedSelector is intentionally excluded so
+# that each rep still draws an independent random ordering.
+_DETERMINISTIC_SELECTORS = {
+    "deg-c",
+    "deg-c-d",
+    "nghb-s",
+    "nghb-sd",
+    "voterank",
+    "mds",
+    "mds+deg",
+    "ts-net",
 }
 
 _RESULTS_FILE = "results.csv"
@@ -104,7 +120,7 @@ def run(config: dict[str, Any]) -> None:
 
     sp = config["spreading"]
     repetitions: int = sp["repetitions"]
-    max_epochs: int = sp["max_epochs"]
+    max_epochs: int | None = sp["max_epochs"]
     patience: int | None = sp.get("patience")
 
     dl_cfg: dict[str, Any] = sp.get("detailed_logs", {})
@@ -141,14 +157,33 @@ def run(config: dict[str, Any]) -> None:
             total_actors = net.get_actors_num()
             n_seeds = max(1, round(seed_budget * total_actors))
 
+            # Pre-compute the actor ranking for StaticSeedingStrategy with a
+            # deterministic selector.  The ranking depends only on topology, so
+            # it is identical across all repetitions and can be injected into
+            # each rep's fresh strategy instance to avoid recomputing it 30×.
+            precomputed_ranking = None
+            if schedule_cfg["class"] == "StaticSeedingStrategy":
+                selector_key = schedule_cfg.get("params", {}).get("selector", "")
+                if selector_key in _DETERMINISTIC_SELECTORS:
+                    _proto = _resolve_strategy(schedule_cfg)
+                    assert isinstance(_proto, StaticSeedingStrategy)
+                    precomputed_ranking = _proto.get_or_compute_ranking(net)
+
             for rep in tqdm(
                 range(repetitions),
                 desc=f"{net_name}/{protocol}/mi={mi_value}/{ss_name}",
                 leave=False,
             ):
+                # Seed both RNGs so that rep i of method A and rep i of method B
+                # share the same random state — satisfying the paired-test assumption
+                # in compare_methods.py.
+                random.seed(rep)
+                np.random.seed(rep)
                 # Fresh strategy, model and network copy per repetition so that
                 # state from previous runs does not leak into the next one.
                 strategy = _resolve_strategy(schedule_cfg)
+                if precomputed_ranking is not None and isinstance(strategy, StaticSeedingStrategy):
+                    strategy.set_precomputed_ranking(precomputed_ranking)
                 model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
                 sim = SequentialSimulator(model, net.copy())
 
@@ -174,7 +209,7 @@ def run(config: dict[str, Any]) -> None:
                         ss_mode=ss_mode,
                         rep=rep,
                         wall_seconds=resource_usage.wall_seconds,
-                        peak_cpu_mb=resource_usage.peak_cpu_mb,
+                        rss_delta_mb=resource_usage.rss_delta_mb,
                         peak_gpu_mb=resource_usage.peak_gpu_mb,
                     )
                 )
@@ -203,7 +238,7 @@ def run(config: dict[str, Any]) -> None:
                     ss_name,
                     partial.gain,
                     resource_usage.wall_seconds,
-                    resource_usage.peak_cpu_mb,
+                    resource_usage.rss_delta_mb,
                     gpu_info,
                 )
 

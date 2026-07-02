@@ -101,20 +101,23 @@ class TestSQRMode:
 class TestActiveActorFiltering:
     def test_organically_active_actor_skipped(self, net, actors) -> None:
         strategy = StaticSeedingStrategy(selector="deg-c", mode="SQ", batch_size=len(actors))
-        # build ranking first
         strategy.next_batch(net, list(actors), epoch=0, stagnant=False)
 
-        # activate every actor organically (simulating LTM)
+        # Simulate organic activation: the SequentialSimulator prunes organically-activated
+        # actors from remaining after every LTM step.  The strategy trusts remaining as the
+        # sole source of eligibility and must not re-seed actors absent from it.
         for actor in actors:
             _activate(net, actor)
+        remaining_after_ltm: list = []  # simulator would have pruned all actors
 
-        batch = strategy.next_batch(net, list(actors), epoch=1, stagnant=False)
+        batch = strategy.next_batch(net, remaining_after_ltm, epoch=1, stagnant=False)
         assert batch == []
 
     def test_partially_active_reduces_batch(self, net, actors) -> None:
         strategy = StaticSeedingStrategy(selector="deg-c", mode="SQ", batch_size=len(actors))
         strategy.next_batch(net, list(actors), epoch=0, stagnant=False)
 
+        # Simulate the simulator pruning actors[0] after it organically activated.
         _activate(net, actors[0])
 
         batch = strategy.next_batch(net, list(actors[1:]), epoch=1, stagnant=False)

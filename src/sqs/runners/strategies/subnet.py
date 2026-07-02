@@ -68,5 +68,4 @@ class SubnetSeedingStrategy(BaseSeedingStrategy):
         if subnet.get_actors_num() == 0:
             return []
         ranking = self._selector.actorwise(subnet)
-        remaining_by_id = {a.actor_id: a for a in remaining}
-        return [remaining_by_id[a.actor_id] for a in ranking if a.actor_id in remaining_by_id]
+        return self._stable_candidates(ranking, remaining)

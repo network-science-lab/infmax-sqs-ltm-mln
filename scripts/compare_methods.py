@@ -29,10 +29,27 @@ import yaml
 from scipy.stats import false_discovery_control, wilcoxon
 
 
-def _rank_biserial_wilcoxon(statistic: float, n: int) -> float:
-    """Rank-biserial correlation for Wilcoxon signed-rank test."""
+def _rank_biserial_wilcoxon(statistic: float, n: int, median_a: float, median_b: float) -> float:
+    """
+    Signed rank-biserial correlation for Wilcoxon signed-rank test.
+
+    ``scipy.stats.wilcoxon`` with ``alternative='two-sided'`` returns the
+    minimum of the two rank sums, which is symmetric in ``a`` and ``b``.  The
+    magnitude of ``r`` is therefore always in ``[0, 1]`` and carries no
+    directional information on its own.  The sign is recovered from the
+    difference of the sample medians so that a positive ``r`` means ``a``
+    tends to exceed ``b``.
+
+    :param statistic: Wilcoxon test statistic.
+    :param n: number of paired observations.
+    :param median_a: median of the first sample.
+    :param median_b: median of the second sample.
+
+    :returns: signed rank-biserial correlation in ``[-1, 1]``.
+    """
     max_stat = n * (n + 1) / 2
-    return 1.0 - (2.0 * statistic) / max_stat
+    magnitude = 1.0 - (2.0 * statistic) / max_stat
+    return magnitude if median_a >= median_b else -magnitude
 
 
 def _collect_raw_tests(df: pd.DataFrame, cfg: dict) -> list[dict]:
@@ -74,18 +91,22 @@ def _collect_raw_tests(df: pd.DataFrame, cfg: dict) -> list[dict]:
                     continue
                 stat, p = wilcoxon(a_vals, b_vals, alternative=alternative)
                 n_pairs = len(merged)
-                records.append({
-                    **group_info,
-                    "metric": metric,
-                    "method_a": method_a,
-                    "method_b": method_b,
-                    "n_pairs": n_pairs,
-                    "median_a": float(np.median(a_vals)),
-                    "median_b": float(np.median(b_vals)),
-                    "statistic": stat,
-                    "p_value": p,
-                    "effect_r": _rank_biserial_wilcoxon(stat, n_pairs),
-                })
+                median_a = float(np.median(a_vals))
+                median_b = float(np.median(b_vals))
+                records.append(
+                    {
+                        **group_info,
+                        "metric": metric,
+                        "method_a": method_a,
+                        "method_b": method_b,
+                        "n_pairs": n_pairs,
+                        "median_a": median_a,
+                        "median_b": median_b,
+                        "statistic": stat,
+                        "p_value": p,
+                        "effect_r": _rank_biserial_wilcoxon(stat, n_pairs, median_a, median_b),
+                    }
+                )
 
     return records
 
@@ -100,9 +121,11 @@ def _apply_fdr(out: pd.DataFrame, metrics: list[str], alpha: float) -> pd.DataFr
         out.loc[mask, "p_adjusted"] = p_adj
     out["significant"] = out["p_adjusted"] < alpha
     out["winner"] = out.apply(
-        lambda r: r["method_a"]
-        if r["significant"] and r["median_a"] > r["median_b"]
-        else (r["method_b"] if r["significant"] and r["median_b"] > r["median_a"] else None),
+        lambda r: (
+            r["method_a"]
+            if r["significant"] and r["median_a"] > r["median_b"]
+            else (r["method_b"] if r["significant"] and r["median_b"] > r["median_a"] else None)
+        ),
         axis=1,
     )
     return out
@@ -112,18 +135,21 @@ def _wins_summary(out: pd.DataFrame) -> pd.DataFrame:
     sig = out[out["significant"]].copy()
     rows = []
     for (metric, method_a, method_b), grp in sig.groupby(["metric", "method_a", "method_b"]):
-        rows.append({
-            "metric": metric,
-            "method_a": method_a,
-            "method_b": method_b,
-            "wins_a": (grp["winner"] == method_a).sum(),
-            "wins_b": (grp["winner"] == method_b).sum(),
-            "total_significant": len(grp),
-        })
+        rows.append(
+            {
+                "metric": metric,
+                "method_a": method_a,
+                "method_b": method_b,
+                "wins_a": (grp["winner"] == method_a).sum(),
+                "wins_b": (grp["winner"] == method_b).sum(),
+                "total_significant": len(grp),
+            }
+        )
     return pd.DataFrame(rows)
 
 
 def main() -> None:
+    """Entry point: parse CLI args, load results CSV, run tests, and write output files."""
     parser = argparse.ArgumentParser(description="Pairwise statistical tests on spreading results.")
     parser.add_argument("--config", required=True, help="Path to YAML config file.")
     args = parser.parse_args()

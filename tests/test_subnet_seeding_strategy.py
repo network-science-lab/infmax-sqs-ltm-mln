@@ -100,23 +100,28 @@ class TestSQRMode:
 class TestActiveActorFiltering:
     def test_organically_active_actor_excluded_from_subnet(self, net, actors) -> None:
         strategy = SubnetSeedingStrategy(selector="deg-c", mode="SQ", batch_size=len(actors))
-        # Activate every actor to simulate full organic spread.
+        # Simulate full organic spread: the simulator prunes all actors from remaining.
         for actor in actors:
             _activate(net, actor)
-        batch = strategy.next_batch(net, list(actors), epoch=0, stagnant=False)
+        remaining_after_ltm: list = []  # simulator would have pruned all actors
+        batch = strategy.next_batch(net, remaining_after_ltm, epoch=0, stagnant=False)
         assert batch == []
 
     def test_active_actor_not_in_batch(self, net, actors) -> None:
         strategy = SubnetSeedingStrategy(selector="deg-c", mode="SQ", batch_size=len(actors))
+        # Simulate the simulator pruning actors[0] after it organically activated.
         _activate(net, actors[0])
-        batch = strategy.next_batch(net, list(actors), epoch=0, stagnant=False)
+        remaining = list(actors[1:])
+        batch = strategy.next_batch(net, remaining, epoch=0, stagnant=False)
         assert actors[0] not in batch
 
     def test_active_actor_reduces_batch_size(self, net, actors) -> None:
         strategy = SubnetSeedingStrategy(selector="deg-c", mode="SQ", batch_size=len(actors))
+        # Simulate the simulator pruning actors[0] after it organically activated.
         _activate(net, actors[0])
-        batch = strategy.next_batch(net, list(actors), epoch=0, stagnant=False)
-        assert len(batch) == len(actors) - 1
+        remaining = list(actors[1:])
+        batch = strategy.next_batch(net, remaining, epoch=0, stagnant=False)
+        assert len(batch) == len(remaining)
 
     def test_seeded_actor_absent_from_batch(self, net, actors) -> None:
         strategy = SubnetSeedingStrategy(selector="deg-c", mode="SQ", batch_size=len(actors))

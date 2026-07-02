@@ -61,7 +61,7 @@ def test_spreading_pipeline_creates_csv(spreading_config: dict, tmp_path: Path) 
         "mi_value",
         "ss_method",
         "wall_seconds",
-        "peak_cpu_mb",
+        "rss_delta_mb",
         "peak_gpu_mb",
     }
     assert expected_columns.issubset(set(columns)), (
@@ -85,7 +85,7 @@ def test_spreading_pipeline_row_values(spreading_config: dict, tmp_path: Path) -
         assert int(row["exposed_nb"]) >= 0
         assert int(row["unexposed_nb"]) >= 0
         assert float(row["wall_seconds"]) >= 0.0
-        assert float(row["peak_cpu_mb"]) >= 0.0  # may be negative on tiny runs, but >=0 in practice
+        assert float(row["rss_delta_mb"]) >= 0.0  # may be negative on tiny runs, but >=0 in practice
         # peak_gpu_mb is empty string on CPU-only runs
         assert row["peak_gpu_mb"] == "" or float(row["peak_gpu_mb"]) >= 0.0
         # seedings: first segment must be a non-empty bracket
