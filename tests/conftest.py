@@ -3,8 +3,8 @@
 import pytest
 from network_diffusion.nets.toy_network_piotr import get_toy_network_piotr
 
-from sqs.models.mltm import SQSMLTModel
-from sqs.runners.seeding_strategy import MockSeedingStrategy
+from sqs.models.propagation.mltm import SQSMLTModel
+from sqs.runners.strategies import MockSeedingStrategy
 from sqs.runners.simulator import SequentialSimulator
 
 

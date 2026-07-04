@@ -7,7 +7,7 @@ import networkx as nx
 import pandas as pd
 from tqdm import tqdm
 
-from sqs.utils import logger
+from sqs.misc.utils import logger
 
 
 def _parse_adj_mats(

@@ -3,8 +3,8 @@
 import pytest
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
-from sqs.models.mltm import SQSMLTModel
-from sqs.runners.seeding_strategy import MockSeedingStrategy
+from sqs.models.propagation.mltm import SQSMLTModel
+from sqs.runners.strategies import MockSeedingStrategy
 from sqs.runners.simulator import SequentialRunLog, SequentialSimulator
 
 
@@ -75,7 +75,7 @@ class TestSequentialSimulator:
 
     def test_patience_stops_spreading_early(self, toy_net: MultilayerNetwork) -> None:
         """With patience=1, simulation stops shortly after the last seed is planted."""
-        # mi=1.0 means a node only activates when ALL neighbours are active — effectively
+        # mi=1.0 means a node only activates when ALL neighbours are active -- effectively
         # no organic spread in a sparse toy network.
         # MockSeedingStrategy plants one seed per epoch, so seeds land at epochs 0..n_seeds-1.
         # After all seeds are planted, two LTM epochs occur before patience triggers:
@@ -105,7 +105,7 @@ class TestSequentialSimulator:
 
     def test_reproducibility(self, toy_net: MultilayerNetwork) -> None:
         """Two runs with identical config must seed the same actors and reach the same coverage."""
-        from sqs.result_handler import extract_simulation_result
+        from sqs.misc.result_handler import extract_simulation_result
 
         def _run(net: MultilayerNetwork) -> SequentialRunLog:
             model = SQSMLTModel(protocol="OR", mi_value=0.15)
@@ -122,6 +122,6 @@ class TestSequentialSimulator:
         assert run_a.seeding_events == run_b.seeding_events
         # Final coverage must match even though per-epoch actor evaluation order is random.
         assert (
-            extract_simulation_result(run_a, total_actors).exposed_nb
-            == extract_simulation_result(run_b, total_actors).exposed_nb
+            extract_simulation_result(run_a, total_actors, n_seeds=3).exposed_nb
+            == extract_simulation_result(run_b, total_actors, n_seeds=3).exposed_nb
         )

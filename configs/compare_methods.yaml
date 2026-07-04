@@ -1,0 +1,37 @@
+# Config for scripts/compare_methods.py
+# Usage: uv run python scripts/compare_methods.py --config configs/compare_methods.yaml
+
+# Path to results.csv produced by the spreading pipeline.
+# Concatenate OR and AND results first if running a joint analysis:
+#   python -c "import pandas as pd; pd.concat([pd.read_csv('data/raw_results/full_or/results.csv'), pd.read_csv('data/raw_results/full_and/results.csv')]).to_csv('data/raw_results/results_all.csv', index=False)"
+results_csv: "./data/raw_results/results_all.csv"
+
+out_dir: "./data/processed/stats"
+
+# Metrics to test. Available: gain, auc, auc_total, saved_seeds, simulation_length.
+metrics:
+  - gain
+  - auc
+  - saved_seeds
+
+# Rows are grouped by these columns before testing.
+# Tests run independently within each unique combination.
+# Finer grouping = more tests but condition-specific conclusions.
+group_by:
+  - protocol
+  - network
+  - mi_value
+  - seed_budget
+
+# Comparison mode:
+#   all_pairs   — every pairwise combination of ss_method values
+#   vs_baseline — each method vs the single baseline named below
+comparisons:
+  mode: "all_pairs"
+  baseline: "ss_deg_c"  # used only when mode=vs_baseline
+
+# Significance threshold (applied to BH-adjusted p-values).
+alpha: 0.05
+
+# Mann-Whitney U alternative hypothesis: two-sided | greater | less.
+alternative: "two-sided"

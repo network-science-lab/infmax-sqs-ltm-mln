@@ -244,15 +244,15 @@ def load_network(net_name: str) -> nd.MultilayerNetwork:
     elif net_name == EU_TRANSPORT_KLM:
         return get_eu_transportation_network(["KLM"])
     elif net_name == L2_COURSE_NET_1:
-        return nd.tpn.get_l2_course_net(
+        return nd.nets.get_l2_course_net(
             node_features=True, edge_features=True, directed=False
         ).snaps[0]
     elif net_name == L2_COURSE_NET_2:
-        return nd.tpn.get_l2_course_net(
+        return nd.nets.get_l2_course_net(
             node_features=True, edge_features=True, directed=False
         ).snaps[1]
     elif net_name == L2_COURSE_NET_3:
-        return nd.tpn.get_l2_course_net(
+        return nd.nets.get_l2_course_net(
             node_features=True, edge_features=True, directed=False
         ).snaps[2]
     elif net_name == LAZEGA:

@@ -2,29 +2,54 @@
 
 import itertools
 import json
+import random
 import zipfile
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from tqdm import tqdm
 
-from sqs import utils
 from sqs.loaders.net_loader import load_network
-from sqs.models.mltm import SQSMLTModel
-from sqs.result_handler import (
+from sqs.misc import utils
+from sqs.misc.resources import monitor_resources
+from sqs.misc.result_handler import (
     SimulationFullResult,
     extract_simulation_result,
     save_results,
 )
-from sqs.runners.seeding_strategy import MockSeedingStrategy
+from sqs.models.propagation.mltm import SQSMLTModel
 from sqs.runners.simulator import SequentialSimulator
+from sqs.runners.strategies import (
+    AdaptiveSeedingStrategy,
+    MockSeedingStrategy,
+    StaticSeedingStrategy,
+    SubnetSeedingStrategy,
+)
 
 logger = utils.logger
 
 _STRATEGY_CLASSES = {
+    "AdaptiveSeedingStrategy": AdaptiveSeedingStrategy,
     "MockSeedingStrategy": MockSeedingStrategy,
+    "StaticSeedingStrategy": StaticSeedingStrategy,
+    "SubnetSeedingStrategy": SubnetSeedingStrategy,
+}
+
+# Selectors whose ranking depends only on network topology and can therefore be
+# cached across repetitions.  RandomSeedSelector is intentionally excluded so
+# that each rep still draws an independent random ordering.
+_DETERMINISTIC_SELECTORS = {
+    "deg-c",
+    "deg-c-d",
+    "nghb-s",
+    "nghb-sd",
+    "voterank",
+    "mds",
+    "mds+deg",
+    "ts-net",
 }
 
 _RESULTS_FILE = "results.csv"
@@ -95,7 +120,7 @@ def run(config: dict[str, Any]) -> None:
 
     sp = config["spreading"]
     repetitions: int = sp["repetitions"]
-    max_epochs: int = sp["max_epochs"]
+    max_epochs: int | None = sp["max_epochs"]
     patience: int | None = sp.get("patience")
 
     dl_cfg: dict[str, Any] = sp.get("detailed_logs", {})
@@ -122,31 +147,55 @@ def run(config: dict[str, Any]) -> None:
             combinations, desc="Experiments", colour="green"
         ):
             ss_name: str = schedule_cfg["name"]
+            ss_class: str = schedule_cfg["class"]
+            ss_params: dict[str, Any] = schedule_cfg.get("params", {})
+            ss_selector: str = ss_params.get("selector", "")
+            ss_mode: str = ss_params.get("mode", "")
 
             logger.info("Loading network %s", net_name)
             net = load_network(net_name)
             total_actors = net.get_actors_num()
             n_seeds = max(1, round(seed_budget * total_actors))
 
+            # Pre-compute the actor ranking for StaticSeedingStrategy with a
+            # deterministic selector.  The ranking depends only on topology, so
+            # it is identical across all repetitions and can be injected into
+            # each rep's fresh strategy instance to avoid recomputing it 30×.
+            precomputed_ranking = None
+            if schedule_cfg["class"] == "StaticSeedingStrategy":
+                selector_key = schedule_cfg.get("params", {}).get("selector", "")
+                if selector_key in _DETERMINISTIC_SELECTORS:
+                    _proto = _resolve_strategy(schedule_cfg)
+                    assert isinstance(_proto, StaticSeedingStrategy)
+                    precomputed_ranking = _proto.get_or_compute_ranking(net)
+
             for rep in tqdm(
                 range(repetitions),
                 desc=f"{net_name}/{protocol}/mi={mi_value}/{ss_name}",
                 leave=False,
             ):
+                # Seed both RNGs so that rep i of method A and rep i of method B
+                # share the same random state — satisfying the paired-test assumption
+                # in compare_methods.py.
+                random.seed(rep)
+                np.random.seed(rep)
                 # Fresh strategy, model and network copy per repetition so that
                 # state from previous runs does not leak into the next one.
                 strategy = _resolve_strategy(schedule_cfg)
+                if precomputed_ranking is not None and isinstance(strategy, StaticSeedingStrategy):
+                    strategy.set_precomputed_ranking(precomputed_ranking)
                 model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
                 sim = SequentialSimulator(model, net.copy())
 
-                run_log = sim.perform_propagation(
-                    n_seeds=n_seeds,
-                    strategy=strategy,
-                    max_epochs=max_epochs,
-                    patience=patience,
-                )
+                with monitor_resources() as resource_usage:
+                    run_log = sim.perform_propagation(
+                        n_seeds=n_seeds,
+                        strategy=strategy,
+                        max_epochs=max_epochs,
+                        patience=patience,
+                    )
 
-                partial = extract_simulation_result(run_log, total_actors)
+                partial = extract_simulation_result(run_log, total_actors, n_seeds)
                 results.append(
                     SimulationFullResult.from_partial(
                         partial=partial,
@@ -155,6 +204,13 @@ def run(config: dict[str, Any]) -> None:
                         seed_budget=seed_budget,
                         mi_value=mi_value,
                         ss_method=ss_name,
+                        ss_class=ss_class,
+                        ss_selector=ss_selector,
+                        ss_mode=ss_mode,
+                        rep=rep,
+                        wall_seconds=resource_usage.wall_seconds,
+                        rss_delta_mb=resource_usage.rss_delta_mb,
+                        peak_gpu_mb=resource_usage.peak_gpu_mb,
                     )
                 )
 
@@ -166,8 +222,14 @@ def run(config: dict[str, Any]) -> None:
                 )
                 write_log(log_name, json.dumps(run_log.logger.get_detailed_logs()))
 
+                gpu_info = (
+                    f"  gpu={resource_usage.peak_gpu_mb:.1f}MB"
+                    if resource_usage.peak_gpu_mb is not None
+                    else ""
+                )
                 logger.debug(
-                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s  gain=%.1f%%",
+                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s"
+                    "  gain=%.1f%%  t=%.2fs  cpu=%.1fMB%s",
                     rep,
                     net_name,
                     protocol,
@@ -175,6 +237,9 @@ def run(config: dict[str, Any]) -> None:
                     seed_budget,
                     ss_name,
                     partial.gain,
+                    resource_usage.wall_seconds,
+                    resource_usage.rss_delta_mb,
+                    gpu_info,
                 )
 
     out_path = out_dir / _RESULTS_FILE
