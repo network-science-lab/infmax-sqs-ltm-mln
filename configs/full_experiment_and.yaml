@@ -74,12 +74,14 @@ seeding_schedules:
       mode: "SS"
       selector_params:
         model_dir: "./model" # path to trained TsNet checkpoint directory
-        device: "cpu"
+        device: "cuda:0"
   - name: "ss_voterank"
     class: "StaticSeedingStrategy"
     params:
       selector: "voterank"
       mode: "SS"
+      selector_params:
+        device: "cuda:0"
 
   # SQ — 1 seed per epoch, pre-ranked order
   - name: "sq_mds_deg"
@@ -108,13 +110,15 @@ seeding_schedules:
       batch_size: 1
       selector_params:
         model_dir: "./model" # path to trained TsNet checkpoint directory
-        device: "cpu"
+        device: "cuda:0"
   - name: "sq_voterank"
     class: "StaticSeedingStrategy"
     params:
       selector: "voterank"
       mode: "SQ"
       batch_size: 1
+      selector_params:
+        device: "cuda:0"
 
   # SQ_R — 1 seed per epoch, revive after stagnation
   - name: "sq_r_mds_deg"
@@ -143,13 +147,15 @@ seeding_schedules:
       batch_size: 1
       selector_params:
         model_dir: "./model" # path to trained TsNet checkpoint directory
-        device: "cpu"
+        device: "cuda:0"
   - name: "sq_r_voterank"
     class: "StaticSeedingStrategy"
     params:
       selector: "voterank"
       mode: "SQ_R"
       batch_size: 1
+      selector_params:
+        device: "cuda:0"
 
 hydra:
   run:
