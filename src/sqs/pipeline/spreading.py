@@ -2,6 +2,7 @@
 
 import itertools
 import json
+import os
 import random
 import zipfile
 from collections.abc import Callable, Generator
@@ -38,9 +39,9 @@ _STRATEGY_CLASSES = {
     "SubnetSeedingStrategy": SubnetSeedingStrategy,
 }
 
-# Selectors whose ranking depends only on network topology and can therefore be
-# cached across repetitions.  RandomSeedSelector is intentionally excluded so
-# that each rep still draws an independent random ordering.
+# Selectors whose ranking depends only on network topology and can therefore be cached across
+# repetitions.  RandomSeedSelector is intentionally excluded so that each rep still draws an
+# independent random ordering.
 _DETERMINISTIC_SELECTORS = {
     "deg-c",
     "deg-c-d",
@@ -63,9 +64,9 @@ def _log_sink(
     """
     Context manager that yields a ``write(name, data)`` callable.
 
-    When ``save=False`` the callable is a no-op.  When ``use_zip=True`` logs
-    are written into ``detailed_logs.zip`` inside ``out_dir``; otherwise each
-    log is written as an individual file under ``detailed_logs/``.
+    When ``save=False`` the callable is a no-op.  When ``use_zip=True`` logs are written into
+    ``detailed_logs.zip`` inside ``out_dir``; otherwise each log is written as an individual
+    file under ``detailed_logs/``.
 
     :param out_dir: directory where output artefacts are written.
     :param save: whether to persist detailed logs at all.
@@ -89,8 +90,8 @@ def _resolve_strategy(schedule_cfg: dict[str, Any]) -> Any:
     """
     Instantiate a ``SeedingStrategy`` from its config block.
 
-    :param schedule_cfg: dict with keys ``"class"`` (strategy class name) and
-        ``"params"`` (forwarded as kwargs to the constructor).
+    :param schedule_cfg: dict with keys ``"class"`` (strategy class name) and ``"params"``
+        (forwarded as kwargs to the constructor).
 
     :returns: configured ``SeedingStrategy`` instance.
     """
@@ -108,10 +109,9 @@ def run(config: dict[str, Any]) -> None:
     """
     Execute the spreading pipeline stage.
 
-    Iterates over the cartesian product of networks, protocols, mi values,
-    seed budgets, seeding schedules, and repetitions; runs
-    ``SequentialSimulator`` for each combination; collects results; and writes
-    a single CSV to ``out_dir``.
+    Iterates over the cartesian product of networks, protocols, mi values,  seed budgets, seeding
+    schedules, and repetitions; runs ``SequentialSimulator`` for each combination; collects
+    results; writes a single CSV to ``out_dir``.
 
     :param config: Hydra-composed pipeline configuration dict.
     """
@@ -127,9 +127,9 @@ def run(config: dict[str, Any]) -> None:
     save_logs: bool = dl_cfg.get("save", False)
     zip_logs: bool = dl_cfg.get("zip", False)
 
-    network_names: list[str] = config["networks"]
-    protocols: list[str] = sp["protocols"]
-    mi_values: list[float] = sp["mi_values"]
+    net_names: list[str] = config["networks"]
+    protos: list[str] = sp["protocols"]
+    mi_vals: list[float] = sp["mi_values"]
     seed_budgets: list[float] = sp["seed_budgets"]
     seeding_schedules: list[dict[str, Any]] = config["seeding_schedules"]
     ss_names = [s["name"] for s in seeding_schedules]
@@ -137,22 +137,23 @@ def run(config: dict[str, Any]) -> None:
         duplicates = {n for n in ss_names if ss_names.count(n) > 1}
         raise ValueError(f"Duplicate seeding_schedule names: {sorted(duplicates)}")
 
-    combinations = list(
-        itertools.product(network_names, protocols, mi_values, seed_budgets, seeding_schedules)
-    )
+    cases = list(itertools.product(net_names, protos, mi_vals, seed_budgets, seeding_schedules))
     results: list[SimulationFullResult] = []
 
+    logger.info("Pipeline started")
+
+    outer_pbar = tqdm(cases, desc="", colour="green", file=open(os.devnull, "w"), leave=False)
     with _log_sink(out_dir, save_logs, zip_logs) as write_log:
-        for net_name, protocol, mi_value, seed_budget, schedule_cfg in tqdm(
-            combinations, desc="Experiments", colour="green"
-        ):
+        for net_name, proto, mi_val, seed_budget, schedule_cfg in outer_pbar:
+            outer_pbar.set_description(f"Case: {net_name}/{proto}/{mi_val}/{schedule_cfg['name']}")
+            logger.info(str(outer_pbar))
+
             ss_name: str = schedule_cfg["name"]
             ss_class: str = schedule_cfg["class"]
             ss_params: dict[str, Any] = schedule_cfg.get("params", {})
             ss_selector: str = ss_params.get("selector", "")
             ss_mode: str = ss_params.get("mode", "")
 
-            logger.info("Loading network %s", net_name)
             net = load_network(net_name)
             total_actors = net.get_actors_num()
             n_seeds = max(1, round(seed_budget * total_actors))
@@ -169,22 +170,22 @@ def run(config: dict[str, Any]) -> None:
                     assert isinstance(_proto, StaticSeedingStrategy)
                     precomputed_ranking = _proto.get_or_compute_ranking(net)
 
-            for rep in tqdm(
-                range(repetitions),
-                desc=f"{net_name}/{protocol}/mi={mi_value}/{ss_name}",
-                leave=False,
-            ):
-                # Seed both RNGs so that rep i of method A and rep i of method B
-                # share the same random state — satisfying the paired-test assumption
-                # in compare_methods.py.
+            inner_pbar = tqdm(range(repetitions), leave=False, file=open(os.devnull, "w"))
+            for rep in inner_pbar:
+                logger.debug("Rep: %s", str(inner_pbar))
+
+                # Seed both RNGs so that rep i of method A and rep i of method B share the same
+                # random state — satisfying the paired-test assumption in compare_methods.py.
                 random.seed(rep)
                 np.random.seed(rep)
-                # Fresh strategy, model and network copy per repetition so that
-                # state from previous runs does not leak into the next one.
+
+                # Fresh strategy, model and network copy per repetition so that state from previous
+                # runs does not leak into the next one.
                 strategy = _resolve_strategy(schedule_cfg)
                 if precomputed_ranking is not None and isinstance(strategy, StaticSeedingStrategy):
                     strategy.set_precomputed_ranking(precomputed_ranking)
-                model = SQSMLTModel(protocol=protocol, mi_value=mi_value)
+
+                model = SQSMLTModel(protocol=proto, mi_value=mi_val)
                 sim = SequentialSimulator(model, net.copy())
 
                 with monitor_resources() as resource_usage:
@@ -200,9 +201,9 @@ def run(config: dict[str, Any]) -> None:
                     SimulationFullResult.from_partial(
                         partial=partial,
                         network=net_name,
-                        protocol=protocol,
+                        protocol=proto,
                         seed_budget=seed_budget,
-                        mi_value=mi_value,
+                        mi_value=mi_val,
                         ss_method=ss_name,
                         ss_class=ss_class,
                         ss_selector=ss_selector,
@@ -214,11 +215,10 @@ def run(config: dict[str, Any]) -> None:
                     )
                 )
 
-                # Filename encodes all varied dimensions so logs from different
-                # combinations never collide inside the same zip / directory.
+                # Filename encodes all varied dimensions so logs from different combinations never
+                # collide inside the same zip / directory.
                 log_name = (
-                    f"{net_name}__{protocol}__mi{mi_value}"
-                    f"__b{seed_budget}__{ss_name}__r{rep:03d}.json"
+                    f"{net_name}__{proto}__mi{mi_val}__b{seed_budget}__{ss_name}__r{rep:03d}.json"
                 )
                 write_log(log_name, json.dumps(run_log.logger.get_detailed_logs()))
 
@@ -228,12 +228,12 @@ def run(config: dict[str, Any]) -> None:
                     else ""
                 )
                 logger.debug(
-                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s"
-                    "  gain=%.1f%%  t=%.2fs  cpu=%.1fMB%s",
+                    "rep=%d  net=%s  protocol=%s  mi=%.2f  budget=%.2f  ss=%s. gain=%.1f%%"
+                    "  t=%.2fs  cpu=%.1fMB%s",
                     rep,
                     net_name,
-                    protocol,
-                    mi_value,
+                    proto,
+                    mi_val,
                     seed_budget,
                     ss_name,
                     partial.gain,
