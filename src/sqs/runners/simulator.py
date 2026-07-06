@@ -166,6 +166,15 @@ class SequentialSimulator(Simulator):
             if newly_active:
                 remaining = [a for a in remaining if a.actor_id not in newly_active]
 
+            if not remaining:
+                # Every actor is either seeded or organically active. LTM activation is
+                # monotone, so the network has reached its final fixed point regardless of
+                # whether the full seed budget was planted -- there are no candidates left
+                # for the strategy to seed and no further state changes are possible.
+                # Waiting for seeds_planted to reach n_seeds here would loop forever when
+                # max_epochs is None.
+                break
+
             if patience is not None:
                 self._update_counter(new_states, old_states)
                 stagnant = self.stopping_counter >= patience

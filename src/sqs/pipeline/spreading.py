@@ -140,6 +140,11 @@ def run(config: dict[str, Any]) -> None:
     cases = list(itertools.product(net_names, protos, mi_vals, seed_budgets, seeding_schedules))
     results: list[SimulationFullResult] = []
 
+    # A network depends only on its name, which does not vary with protocol, mi, or seed_budget.
+    # Caching it here (instead of inside the per-case loop) avoids reparsing the same network
+    # file on every one of the cartesian-product cases below.
+    net_cache: dict[str, Any] = {}
+
     logger.info("Pipeline started")
 
     outer_pbar = tqdm(cases, desc="", colour="green", file=open(os.devnull, "w"), leave=False)
@@ -154,7 +159,9 @@ def run(config: dict[str, Any]) -> None:
             ss_selector: str = ss_params.get("selector", "")
             ss_mode: str = ss_params.get("mode", "")
 
-            net = load_network(net_name)
+            if net_name not in net_cache:
+                net_cache[net_name] = load_network(net_name)
+            net = net_cache[net_name]
             total_actors = net.get_actors_num()
             n_seeds = max(1, round(seed_budget * total_actors))
 
@@ -164,7 +171,7 @@ def run(config: dict[str, Any]) -> None:
             # each rep's fresh strategy instance to avoid recomputing it 30×.
             precomputed_ranking = None
             if schedule_cfg["class"] == "StaticSeedingStrategy":
-                selector_key = schedule_cfg.get("params", {}).get("selector", "")
+                selector_key = ss_params.get("selector", "")
                 if selector_key in _DETERMINISTIC_SELECTORS:
                     _proto = _resolve_strategy(schedule_cfg)
                     assert isinstance(_proto, StaticSeedingStrategy)

@@ -4,7 +4,7 @@ import pytest
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
 from sqs.models.propagation.mltm import SQSMLTModel
-from sqs.runners.strategies import MockSeedingStrategy
+from sqs.runners.strategies import MockSeedingStrategy, StaticSeedingStrategy
 from sqs.runners.simulator import SequentialRunLog, SequentialSimulator
 
 
@@ -102,6 +102,27 @@ class TestSequentialSimulator:
             simulator.perform_propagation(
                 n_seeds=1, strategy=mock_strategy, max_epochs=10, patience=0
             )
+
+    def test_stops_when_organic_spread_exhausts_remaining_before_budget(
+        self, toy_net: MultilayerNetwork
+    ) -> None:
+        """
+        Must terminate even when the network fully saturates before all seeds land.
+
+        SQ_R only re-seeds once spreading stagnates, giving organic activation time
+        to reach every actor from a single seed on this densely-connected toy network.
+        Once no actor remains to seed, ``seeds_planted`` can never reach ``n_seeds``,
+        so with ``max_epochs=None`` the loop must exit via the empty-``remaining``
+        check rather than looping forever.
+        """
+        model = SQSMLTModel(protocol="OR", mi_value=0.1)
+        sim = SequentialSimulator(model, toy_net.copy())
+        strategy = StaticSeedingStrategy(selector="deg-c", mode="SQ_R", batch_size=1)
+        result = sim.perform_propagation(
+            n_seeds=3, strategy=strategy, max_epochs=None, patience=2
+        )
+        planted = sum(len(actors) for actors in result.seeding_events.values())
+        assert planted == 1
 
     def test_reproducibility(self, toy_net: MultilayerNetwork) -> None:
         """Two runs with identical config must seed the same actors and reach the same coverage."""
