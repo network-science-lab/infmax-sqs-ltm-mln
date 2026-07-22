@@ -254,11 +254,16 @@ def extract_simulation_result(
     )
 
 
-def save_results(results: list[SimulationFullResult], path: Path) -> None:
+def append_result(result: SimulationFullResult, path: Path) -> None:
     """
-    Write a list of results to a CSV file.
+    Append a single result as a row to a CSV file, writing the header on first write.
 
-    :param results: simulation results to persist.
+    Appending after every repetition -- instead of accumulating results in memory and writing
+    them once at the end -- means a killed or crashed run keeps whatever it has already
+    completed, which matters for runs spanning hours or days on large networks.
+
+    :param result: simulation result to persist.
     :param path: destination file path; parent directories must already exist.
     """
-    pd.DataFrame([asdict(r) for r in results]).to_csv(path, index=False, encoding="utf-8")
+    df = pd.DataFrame([asdict(result)])
+    df.to_csv(path, mode="a", header=not path.exists(), index=False, encoding="utf-8")

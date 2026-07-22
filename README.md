@@ -39,11 +39,26 @@ multilayer networks under the Linear Threshold Model (LTM).
 ## Running experiments
 
 ```bash
-uv run sqs --config-name=full_experiment_or    # OR protocol, budgets 5–25 %
-uv run sqs --config-name=full_experiment_and   # AND protocol, budgets 15–35 %
+uv run sqs --config-name=full_experiment_or_sq    # OR protocol, SQ mode, all networks
+uv run sqs --config-name=full_experiment_and_ss   # AND protocol, SS mode, all networks
 ```
 
-Both configs write `results.csv` to `data/raw_results/full_or/` and `full_and/` respectively.
+Each config writes its `results.csv` to `data/raw_results/<config-name>/`, appending one row per
+repetition as soon as it completes (rather than only at the end of the run), so a killed or crashed
+job keeps whatever it has already finished.
+
+A single config runs its whole network list sequentially in one process, so a large network
+(`timik1q2009`, `arxiv_netscience_coauthorship`) can dominate the wall-clock time. To spread a
+config's networks across several workers instead -- splitting the slow networks further by
+`mi_value` so they do not become a single-worker bottleneck -- use `scripts/run_grid.py`:
+
+```bash
+uv run python scripts/run_grid.py full_experiment_and_ss --workers 8
+```
+
+See the script's module docstring for details (shard sizing, GPU pinning via `--cuda-devices`,
+duplicate-launch protection).
+
 To test the pipeline on a small toy network first:
 
 ```bash
@@ -58,10 +73,10 @@ YAML there for each experiment variant.
 Each config declares a list of `seeding_schedules`, where every entry specifies a strategy class,
 selector, and timing mode:
 
-| Mode   | Behaviour |
-|--------|-----------|
-| `SS`   | Full budget seeded at epoch 0 (single-stage baseline) |
-| `SQ`   | One seed per epoch in pre-ranked order |
+| Mode   | Behaviour                                                  |
+| ------ | ---------------------------------------------------------- |
+| `SS`   | Full budget seeded at epoch 0 (single-stage baseline)      |
+| `SQ`   | One seed per epoch in pre-ranked order                     |
 | `SQ_R` | One seed per epoch; new seed only when spreading stagnates |
 
 - **`outputs/<date>/<time>/<job>.log`** — full log of the run (console output is mirrored here)

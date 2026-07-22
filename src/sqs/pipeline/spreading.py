@@ -18,8 +18,8 @@ from sqs.misc import utils
 from sqs.misc.resources import monitor_resources
 from sqs.misc.result_handler import (
     SimulationFullResult,
+    append_result,
     extract_simulation_result,
-    save_results,
 )
 from sqs.models.propagation.mltm import SQSMLTModel
 from sqs.runners.simulator import SequentialSimulator
@@ -110,8 +110,8 @@ def run(config: dict[str, Any]) -> None:
     Execute the spreading pipeline stage.
 
     Iterates over the cartesian product of networks, protocols, mi values,  seed budgets, seeding
-    schedules, and repetitions; runs ``SequentialSimulator`` for each combination; collects
-    results; writes a single CSV to ``out_dir``.
+    schedules, and repetitions; runs ``SequentialSimulator`` for each combination; appends each
+    result to the CSV in ``out_dir`` as soon as it is computed.
 
     :param config: Hydra-composed pipeline configuration dict.
     """
@@ -138,7 +138,8 @@ def run(config: dict[str, Any]) -> None:
         raise ValueError(f"Duplicate seeding_schedule names: {sorted(duplicates)}")
 
     cases = list(itertools.product(net_names, protos, mi_vals, seed_budgets, seeding_schedules))
-    results: list[SimulationFullResult] = []
+    out_path = out_dir / _RESULTS_FILE
+    results_written = 0
 
     # A network depends only on its name, which does not vary with protocol, mi, or seed_budget.
     # Caching it here (instead of inside the per-case loop) avoids reparsing the same network
@@ -204,23 +205,23 @@ def run(config: dict[str, Any]) -> None:
                     )
 
                 partial = extract_simulation_result(run_log, total_actors, n_seeds)
-                results.append(
-                    SimulationFullResult.from_partial(
-                        partial=partial,
-                        network=net_name,
-                        protocol=proto,
-                        seed_budget=seed_budget,
-                        mi_value=mi_val,
-                        ss_method=ss_name,
-                        ss_class=ss_class,
-                        ss_selector=ss_selector,
-                        ss_mode=ss_mode,
-                        rep=rep,
-                        wall_seconds=resource_usage.wall_seconds,
-                        rss_delta_mb=resource_usage.rss_delta_mb,
-                        peak_gpu_mb=resource_usage.peak_gpu_mb,
-                    )
+                full_result = SimulationFullResult.from_partial(
+                    partial=partial,
+                    network=net_name,
+                    protocol=proto,
+                    seed_budget=seed_budget,
+                    mi_value=mi_val,
+                    ss_method=ss_name,
+                    ss_class=ss_class,
+                    ss_selector=ss_selector,
+                    ss_mode=ss_mode,
+                    rep=rep,
+                    wall_seconds=resource_usage.wall_seconds,
+                    rss_delta_mb=resource_usage.rss_delta_mb,
+                    peak_gpu_mb=resource_usage.peak_gpu_mb,
                 )
+                append_result(full_result, out_path)
+                results_written += 1
 
                 # Filename encodes all varied dimensions so logs from different combinations never
                 # collide inside the same zip / directory.
@@ -249,6 +250,4 @@ def run(config: dict[str, Any]) -> None:
                     gpu_info,
                 )
 
-    out_path = out_dir / _RESULTS_FILE
-    save_results(results, out_path)
-    logger.info("Saved %d results to %s", len(results), out_path)
+    logger.info("Saved %d results to %s", results_written, out_path)
