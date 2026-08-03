@@ -1,0 +1,53 @@
+# @package _global_
+defaults:
+  - override /hydra/job_logging: custom
+  - _self_
+
+networks:
+  - "er3"
+
+run:
+  experiment_type: "spreading"
+  out_dir: "./data/raw_results/full/or_er3_sq_nghb_sd"
+
+spreading:
+  protocols:
+    - "OR"
+  mi_values:
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.7
+    - 0.8
+    - 0.9
+  seed_budgets:
+    - 0.05
+    - 0.1
+    - 0.15
+    - 0.2
+    - 0.25
+  repetitions: 30
+  # max_epochs: null removes the hard epoch cap so SQ_R schedules with large budgets
+  # can always finish planting all seeds.  LTM is monotone, so patience alone
+  # guarantees termination at a real fixed point.
+  max_epochs: ~
+  patience: 2
+
+  detailed_logs:
+    save: false
+    zip: false
+
+seeding_schedules:
+  - name: "sq_nghb_sd"
+    class: "StaticSeedingStrategy"
+    params:
+      selector: "nghb-sd"
+      mode: "SQ"
+      batch_size: 1
+
+hydra:
+  run:
+    dir: ${run.out_dir}

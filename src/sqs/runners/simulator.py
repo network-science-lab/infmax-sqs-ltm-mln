@@ -27,10 +27,16 @@ class SequentialRunLog:
     ``seeding_events`` maps each epoch index at which a seeding event occurred to
     the list of actor IDs seeded at that epoch.  Epochs with no seeding are absent
     from the dict, not stored as empty lists.
+
+    ``active_counts`` maps each LTM epoch to the cumulative count of distinct active
+    actors after that epoch.  This is the only per-epoch data ``extract_simulation_result``
+    needs; keeping it separate from ``logger`` means result metrics stay cheap to compute
+    (O(1) per epoch) even when ``track_full_logs=False`` drops the full per-actor snapshots.
     """
 
     logger: Logger
     seeding_events: dict[int, list[str]] = field(default_factory=dict)
+    active_counts: dict[int, int] = field(default_factory=dict)
 
 
 class SequentialSimulator(Simulator):
@@ -47,6 +53,7 @@ class SequentialSimulator(Simulator):
         strategy: SeedingStrategy,
         max_epochs: int | None,
         patience: int | None = None,
+        track_full_logs: bool = True,
     ) -> SequentialRunLog:
         """
         Run a seeding simulation on the network held by this instance.
@@ -72,6 +79,12 @@ class SequentialSimulator(Simulator):
         :param patience: stop the simulation once all seeds are planted and this
             many consecutive LTM epochs produce no new activations; ``None``
             disables early stopping.
+        :param track_full_logs: whether to retain the full per-actor state snapshot for
+            every epoch in ``logger`` (needed only to write detailed logs to disk).  Result
+            metrics rely solely on ``active_counts``, which is always populated, so callers
+            that do not persist detailed logs should pass ``False`` -- on large networks with
+            ``SQ_R`` schedules the epoch count scales with ``n_seeds * patience``, and a full
+            per-epoch, per-actor snapshot at that scale can grow into gigabytes per run.
 
         :returns: ``SequentialRunLog`` containing the Logger and seeding timeline.
         """
@@ -104,6 +117,7 @@ class SequentialSimulator(Simulator):
 
         logger = Logger(str(self._model), str(self._network))
         seeding_events: dict[int, list[str]] = {}
+        active_counts: dict[int, int] = {}
         seeds_planted = 0
         stagnant = False
         old_states: list[NUBuff] = []
@@ -138,7 +152,9 @@ class SequentialSimulator(Simulator):
                     seed_json = self._model.update_network(self._network, seed_buffs)
                     seeding_events[epoch] = [str(a.actor_id) for a in batch]
                     logger.add_global_stat(self._model.get_states_num(self._network))
-                    logger.add_local_stat(epoch, seed_json)  # partial snapshot: seeded actors only
+                    if track_full_logs:
+                        # partial snapshot: seeded actors only
+                        logger.add_local_stat(epoch, seed_json)
                     seeds_planted += len(batch)
                     stagnant = False
                     self.stopping_counter = 0
@@ -152,7 +168,16 @@ class SequentialSimulator(Simulator):
             new_states = self._model.network_evaluation_step(self._network)
             epoch_json = self._model.update_network(self._network, new_states)
             logger.add_global_stat(self._model.get_states_num(self._network))
-            logger.add_local_stat(epoch, epoch_json)  # full snapshot: all actors
+            # new_states is a full snapshot (every actor, every layer), so the count of
+            # distinct active node_names is the cumulative active-actor count after this
+            # epoch.  Tracked unconditionally (O(1) to store) so result metrics never need
+            # the full per-actor logger snapshot below, which is what makes track_full_logs
+            # safe to disable on large networks with long-running SQ_R schedules.
+            active_counts[epoch] = len(
+                {buff.node_name for buff in new_states if buff.new_state == MLTModel.ACTIVE_STATE}
+            )
+            if track_full_logs:
+                logger.add_local_stat(epoch, epoch_json)  # full snapshot: all actors
 
             # Prune actors from remaining that organically activated this epoch.
             # Keeping remaining accurate eliminates the need for is_already_active()
@@ -186,4 +211,6 @@ class SequentialSimulator(Simulator):
             epoch += 1
 
         logger.convert_logs(self._model.get_allowed_states(self._network))
-        return SequentialRunLog(logger=logger, seeding_events=seeding_events)
+        return SequentialRunLog(
+            logger=logger, seeding_events=seeding_events, active_counts=active_counts
+        )

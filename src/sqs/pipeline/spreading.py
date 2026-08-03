@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import threadpoolctl
 from tqdm import tqdm
 
 from sqs.loaders.net_loader import load_network
@@ -115,6 +116,16 @@ def run(config: dict[str, Any]) -> None:
 
     :param config: Hydra-composed pipeline configuration dict.
     """
+    max_threads: int | None = config["run"].get("max_threads")
+    if max_threads is not None:
+        # Caps BLAS/OpenMP thread pools (numpy, scipy, sklearn) in-process rather than via
+        # environment variables, so a launcher running several shards concurrently can give each
+        # one a fair share of cores without oversubscribing the machine.
+        threadpoolctl.threadpool_limits(limits=max_threads)
+        import torch  # noqa: PLC0415
+
+        torch.set_num_threads(max_threads)
+
     out_dir = Path(config["run"]["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -202,6 +213,7 @@ def run(config: dict[str, Any]) -> None:
                         strategy=strategy,
                         max_epochs=max_epochs,
                         patience=patience,
+                        track_full_logs=save_logs,
                     )
 
                 partial = extract_simulation_result(run_log, total_actors, n_seeds)

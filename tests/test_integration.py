@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 
 import pytest
+import threadpoolctl
 
 from sqs.pipeline import spreading
 
@@ -94,3 +95,14 @@ def test_spreading_pipeline_row_values(spreading_config: dict, tmp_path: Path) -
         # expositions: every segment must be a non-negative integer
         for seg in row["expositions"].split(";"):
             assert int(seg) >= 0
+
+
+def test_spreading_pipeline_applies_max_threads(
+    spreading_config: dict, tmp_path: Path
+) -> None:
+    """run.max_threads must cap BLAS thread pools in-process, not just document intent."""
+    spreading_config["run"]["max_threads"] = 1
+
+    spreading.run(spreading_config)
+
+    assert all(info["num_threads"] == 1 for info in threadpoolctl.threadpool_info())

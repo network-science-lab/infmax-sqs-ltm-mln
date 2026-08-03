@@ -39,25 +39,39 @@ multilayer networks under the Linear Threshold Model (LTM).
 ## Running experiments
 
 ```bash
-uv run sqs --config-name=full_experiment_or_sq    # OR protocol, SQ mode, all networks
-uv run sqs --config-name=full_experiment_and_ss   # AND protocol, SS mode, all networks
+uv run sqs --config-name=full_experiment_aucs        # aucs, both protocols, all modes -- cheap, unsplit
+uv run sqs --config-name=full/and_er2_ss_mds_deg      # one (protocol, network, mode, selector) slice
 ```
 
-Each config writes its `results.csv` to `data/raw_results/<config-name>/`, appending one row per
+`configs/full/`, `configs/arxiv/`, and `configs/timik/` each hold one config per (protocol, network,
+mode, selector) combination (`arxiv`/`timik` fix the network, since those two are orders of
+magnitude slower than the rest and cannot be handed to a single process as a whole).
+`full_experiment_aucs.yaml` stays a single bundled config since aucs is cheap enough that splitting
+it further would not help.
+
+Each config writes its `results.csv` to `data/raw_results/<out_dir>/`, appending one row per
 repetition as soon as it completes (rather than only at the end of the run), so a killed or crashed
 job keeps whatever it has already finished.
 
-A single config runs its whole network list sequentially in one process, so a large network
-(`timik1q2009`, `arxiv_netscience_coauthorship`) can dominate the wall-clock time. To spread a
-config's networks across several workers instead -- splitting the slow networks further by
-`mi_value` so they do not become a single-worker bottleneck -- use `scripts/run_grid.py`:
+To run many of these concurrently (weight-balanced by network, default 2 workers since this machine
+is shared), use `scripts/run_grid.py` with an `fnmatch` glob:
 
 ```bash
-uv run python scripts/run_grid.py full_experiment_and_ss --workers 8
+uv run python scripts/run_grid.py "full/and_*" --workers 2
+uv run python scripts/run_grid.py "timik/*" "arxiv/*" --workers 2 --cuda-devices 0,1
 ```
 
-See the script's module docstring for details (shard sizing, GPU pinning via `--cuda-devices`,
+See the script's module docstring for details (job ordering, GPU pinning via `--cuda-devices`,
 duplicate-launch protection).
+
+Since each job only covers one (protocol, network, mode, selector) slice, use
+`scripts/merge_results.py` to regroup finished jobs by network into one combined `results.csv`
+per network -- the same shape `data/raw_results/full_aucs/results.csv` already has:
+
+```bash
+uv run python scripts/merge_results.py data/raw_results/full
+uv run python scripts/merge_results.py data/raw_results/full data/raw_results/arxiv data/raw_results/timik
+```
 
 To test the pipeline on a small toy network first:
 

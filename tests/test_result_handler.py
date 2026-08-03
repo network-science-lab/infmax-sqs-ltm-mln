@@ -36,20 +36,11 @@ class TestBuildSeedings:
 
 class TestBuildExpositions:
     def test_counts_active_nodes_per_epoch(self) -> None:
-        # epoch 0: full LTM snapshot -- A active (2 layers, deduplicated), B inactive
-        # epoch 1: seeding epoch -- C seeded (partial log, handled via seeding_events)
-        local_stats = {
-            0: [
-                {"node_name": "A", "layer_name": "l1", "new_state": "1"},
-                {"node_name": "A", "layer_name": "l2", "new_state": "1"},
-                {"node_name": "B", "layer_name": "l1", "new_state": "0"},
-            ],
-            1: [
-                {"node_name": "C", "layer_name": "l1", "new_state": "1"},
-            ],
-        }
+        # epoch 0: LTM epoch -- A active (cumulative count = 1)
+        # epoch 1: seeding epoch -- C seeded (handled via seeding_events, not active_counts)
+        active_counts = {0: 1}
         expositions = _build_expositions(
-            local_stats, total_epochs=1, seeding_events={1: ["C"]}
+            active_counts, total_epochs=1, seeding_events={1: ["C"]}
         )
         parts = expositions.split(";")
         assert parts[0] == "1"  # epoch 0 (LTM): A newly active
