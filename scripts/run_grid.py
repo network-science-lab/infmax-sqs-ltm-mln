@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
-"""Shard one or more base ``sqs`` configs across workers and run them with bounded concurrency.
+"""Run several pre-split ``sqs`` configs concurrently with bounded parallelism.
 
-Takes an existing config (e.g. ``full_experiment_and_ss``, which lists all 12 networks) and
-splits its case grid into independently-launchable shards via Hydra CLI overrides -- no new YAML
-files needed.  Networks whose estimated total cost would alone exceed a fair share of a worker's
-time (``timik1q2009``, ``arxiv_netscience_coauthorship`` today) are further split by ``mi_value``
-so they can run across several workers at once instead of being a single-network bottleneck; the
-rest ("light" networks) are themselves balanced (longest-processing-time heuristic) into up to
-``--workers`` groups instead of one monolithic bundle, so they also fill several workers at once.
-Shards are sorted by descending estimated weight and fed into a worker pool of size ``--workers``,
-so the heaviest work starts first and everything else backfills -- the closest this pipeline can
-get to maximally saturating available GPUs/cores without changing how ``spreading.py`` itself
-runs.
+``configs/full/``, ``configs/arxiv/``, and ``configs/timik/`` each hold one config per
+(protocol, network, mode, selector) combination (network fixed for the latter two folders), so
+every file is already a small, self-contained job -- no runtime splitting needed.
+``configs/full_experiment_aucs.yaml`` stays a single bundled config (aucs is cheap enough that
+splitting it further would not help).
 
-Each shard writes to its own subdirectory under the base config's ``out_dir`` (already-incremental
-``results.csv`` per shard -- concatenate them for the full picture), and progress is read back from
-the tail of each shard's ``main.log`` and rendered as one ``tqdm`` bar per shard.
+Jobs are launched as independent ``uv run sqs --config-name=<name>`` processes, sorted by
+descending estimated weight (rough per-network timings) so the heaviest work starts first.
+BLAS/OpenMP thread limits are applied in-process via ``run.max_threads`` (see ``spreading.run``),
+not environment variables, so each job gets a fair share of cores instead of every process trying
+to use them all.
+
+Progress per job is read back from the tail of its ``main.log`` (no pipeline changes needed) and
+shown as one ``tqdm`` bar per job.
 
 Usage:
-    uv run python scripts/run_grid.py full_experiment_and_ss --workers 8
-    uv run python scripts/run_grid.py "full_experiment_and_*" --cuda-devices 0,1,2,3,4,5,6,7
+    uv run python scripts/run_grid.py "full/and_*" --workers 2 --cuda-devices 0
+    uv run python scripts/run_grid.py "timik/*" "arxiv/*" --workers 2 --cuda-devices 0,1
 """
 
-import argparse
+import csv
 import fnmatch
 import os
 import re
 import subprocess
 import time
+from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -37,15 +37,15 @@ from tqdm import tqdm
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CONFIGS_DIR = _ROOT / "configs"
+_LAUNCHER_LOGS_DIR = _ROOT / "data" / "raw_results" / "_launcher_logs"
 
+_RESULTS_FILE = "results.csv"
 _CASE_RE = re.compile(r"Case: .*?:\s*\d+%\|.*?\|\s*(\d+)/(\d+)")
 _REP_RE = re.compile(r"Rep:\s*\d+%\|.*?\|\s*(\d+)/(\d+)")
-
 _TAIL_BYTES = 8192
+_REFRESH_SECONDS = 5.0
 
-# Rough per-case wall-clock cost in seconds, read off data/raw_results/*/main.log timings on
-# 2026-07-13 (AND/OR, SS/SQ modes).  Only used to decide which networks need splitting and to
-# order shards -- being off by a factor of ~2 does not change the outcome.
+# Rough per-case wall-clock cost in seconds
 _NETWORK_SECONDS_PER_CASE = {
     "er2": 30.0,
     "er3": 70.0,
@@ -59,35 +59,36 @@ _NETWORK_SECONDS_PER_CASE = {
     "arxiv_netscience_coauthorship": 3456.0,
     "timik1q2009": 5834.0,
 }
-# Unmeasured network (e.g. l2_course_net_1): assume the heaviest *known-light* network rather
-# than risk silently under-splitting an actually-heavy one.
-_DEFAULT_SECONDS_PER_CASE = 99.0
-
-_DEFAULT_WORKERS = 4
+_MODE_WEIGHT = {
+    "SS": 1,
+    "SQ": 2,
+    "SQ_R": 3,
+}
+_DEFAULT_SECONDS_PER_CASE = 99.0  # unmeasured network: assume the heaviest known-light one
 
 
 @dataclass
-class Shard:
-    """One independently-launchable slice of a base config's case grid."""
+class Job:
+    """One launchable config file."""
 
-    label: str
-    base_config: str
-    networks: list[str]
-    mi_values: list[float] | None
+    name: str
     out_dir: str
     weight_seconds: float
+    expected_rows: int
 
 
 def resolve_config_names(patterns: list[str]) -> list[str]:
     """
-    Expand config-name glob patterns against the YAML files in ``configs/``.
+    Expand config-name glob patterns against the YAML files in ``configs/`` (recursive).
 
-    :param patterns: literal config names or ``fnmatch``-style globs
-        (e.g. ``"full_experiment_and_*"``).
+    :param patterns: literal config names or ``fnmatch``-style globs, e.g. ``"full/and_*"``.
 
-    :returns: sorted, de-duplicated list of matching config names (without the ``.yaml`` suffix).
+    :returns: sorted, de-duplicated list of matching config names (without the ``.yaml`` suffix,
+        using ``/`` for subfolder configs, e.g. ``"full/and_er2_ss_mds_deg"``).
     """
-    available = sorted(p.stem for p in _CONFIGS_DIR.glob("*.yaml"))
+    available = sorted(
+        p.relative_to(_CONFIGS_DIR).with_suffix("").as_posix() for p in _CONFIGS_DIR.rglob("*.yaml")
+    )
     matched: set[str] = set()
     for pattern in patterns:
         hits = [name for name in available if fnmatch.fnmatch(name, pattern)]
@@ -97,148 +98,77 @@ def resolve_config_names(patterns: list[str]) -> list[str]:
     return sorted(matched)
 
 
-def load_config(config_name: str) -> dict:
+def build_job(config_name: str) -> Job:
     """
-    Load a base config's raw YAML.
+    Load one config and estimate its wall-clock weight.
+
+    :param config_name: config name (without ``.yaml`` suffix, ``/`` for subfolders).
+
+    :returns: the job for this config.
+    """
+    with (_CONFIGS_DIR / f"{config_name}.yaml").open(encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    sp = cfg["spreading"]
+    seeding_schedules_weight = sum(_MODE_WEIGHT[i['params']['mode']] for i in cfg["seeding_schedules"])
+    cases = (
+        len(sp["protocols"])
+        * len(sp["mi_values"])
+        * len(sp["seed_budgets"])
+        * seeding_schedules_weight
+    )
+    network = cfg["networks"][0]
+    weight = _NETWORK_SECONDS_PER_CASE.get(network, _DEFAULT_SECONDS_PER_CASE) * cases
+    return Job(
+        name=config_name,
+        out_dir=str(cfg["run"]["out_dir"]),
+        weight_seconds=weight,
+        expected_rows=cases * sp["repetitions"],
+    )
+
+
+def already_running(config_name: str) -> bool:
+    """
+    Check whether a process for this config is already running, to avoid duplicate launches.
 
     :param config_name: config name (without ``.yaml`` suffix).
 
-    :returns: parsed config dict.
+    :returns: True if a matching ``sqs --config-name=<config_name>`` process is alive.
     """
-    with (_CONFIGS_DIR / f"{config_name}.yaml").open(encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
-
-
-def _lpt_groups(items: list[str], weight: dict[str, float], n_groups: int) -> list[list[str]]:
-    """
-    Partition ``items`` into ``n_groups`` roughly-equal-weight buckets (longest-processing-time).
-
-    Sorts items by descending weight and greedily drops each into the currently lightest bucket --
-    the standard LPT heuristic, at most 4/3 off the optimal balance.
-
-    :param items: items to partition (e.g. network names).
-    :param weight: weight lookup for each item.
-    :param n_groups: number of buckets to produce; capped at ``len(items)`` so none are empty.
-
-    :returns: list of ``n_groups`` (or fewer) item buckets.
-    """
-    n_groups = max(1, min(n_groups, len(items)))
-    buckets: list[list[str]] = [[] for _ in range(n_groups)]
-    loads = [0.0] * n_groups
-    for item in sorted(items, key=lambda i: weight[i], reverse=True):
-        lightest = loads.index(min(loads))
-        buckets[lightest].append(item)
-        loads[lightest] += weight[item]
-    return buckets
-
-
-def build_shards(config_name: str, n_workers: int) -> list[Shard]:
-    """
-    Split a base config's networks into weighted shards sized for ``n_workers``.
-
-    A network is classified "heavy" when its estimated total cost alone would exceed a fair
-    ``1/n_workers`` share of the whole grid; such networks are split into one shard per
-    ``mi_value`` so several workers can chip away at them concurrently.  The remaining ("light")
-    networks are themselves LPT-balanced into up to ``n_workers`` groups -- rather than one
-    monolithic bundle -- so light work also fills several workers concurrently instead of
-    occupying just one for its whole (combined) duration.
-
-    :param config_name: base config name (without ``.yaml`` suffix); must declare ``networks``,
-        ``spreading.mi_values/seed_budgets``, and ``seeding_schedules``.
-    :param n_workers: number of workers the shards will be scheduled across.
-
-    :returns: shards sorted by descending estimated weight.
-    """
-    cfg = load_config(config_name)
-    networks: list[str] = cfg["networks"]
-    sp = cfg["spreading"]
-    mi_values: list[float] = sp["mi_values"]
-    cases_per_network = len(mi_values) * len(sp["seed_budgets"]) * len(cfg["seeding_schedules"])
-
-    weight = {
-        net: _NETWORK_SECONDS_PER_CASE.get(net, _DEFAULT_SECONDS_PER_CASE) * cases_per_network
-        for net in networks
-    }
-    total_weight = sum(weight.values())
-    fair_share = total_weight / n_workers if n_workers else total_weight
-
-    base_out_dir = str(cfg["run"]["out_dir"]).rstrip("/")
-    can_split_by_mi = len(mi_values) > 1
-    heavy = [net for net in networks if weight[net] > fair_share and can_split_by_mi]
-    light = [net for net in networks if net not in heavy]
-
-    shards: list[Shard] = []
-    for net in heavy:
-        per_mi_weight = weight[net] / len(mi_values)
-        for mi in mi_values:
-            shards.append(
-                Shard(
-                    label=f"{config_name}/{net}/mi{mi}",
-                    base_config=config_name,
-                    networks=[net],
-                    mi_values=[mi],
-                    out_dir=f"{base_out_dir}/_shard_{net}_mi{mi}",
-                    weight_seconds=per_mi_weight,
-                )
-            )
-
-    for i, group in enumerate(_lpt_groups(light, weight, n_workers)):
-        shards.append(
-            Shard(
-                label=f"{config_name}/light{i}({len(group)} nets)",
-                base_config=config_name,
-                networks=group,
-                mi_values=None,
-                out_dir=f"{base_out_dir}/_shard_light{i}",
-                weight_seconds=sum(weight[net] for net in group),
-            )
-        )
-
-    return sorted(shards, key=lambda s: s.weight_seconds, reverse=True)
-
-
-def shard_overrides(shard: Shard) -> list[str]:
-    """
-    Build the Hydra CLI overrides that carve out one shard from its base config.
-
-    :param shard: shard to launch.
-
-    :returns: ``key=value`` override strings for ``uv run sqs --config-name=<base> <overrides>``.
-    """
-    overrides = [
-        f"networks=[{','.join(shard.networks)}]",
-        f"run.out_dir={shard.out_dir}",
-    ]
-    if shard.mi_values is not None:
-        overrides.append(f"spreading.mi_values=[{','.join(str(v) for v in shard.mi_values)}]")
-    return overrides
-
-
-def already_running(out_dir: str) -> bool:
-    """
-    Check whether a process already targets this shard's ``out_dir``, to avoid duplicate launches.
-
-    :param out_dir: the shard's ``run.out_dir`` override value.
-
-    :returns: True if a matching process is alive.
-    """
+    # Launched jobs always have "+run.max_threads=<n>" trailing after "--config-name=<name>"
+    # (see launch()), so anchoring on end-of-string here would never match; require a space
+    # or end-of-string instead, so a name is not falsely matched as a prefix of a longer one.
     result = subprocess.run(
-        ["pgrep", "-f", f"run.out_dir={out_dir}"],
+        ["pgrep", "-f", f"config-name={config_name}( |$)"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     return result.returncode == 0
 
 
+def count_result_rows(out_dir: str) -> int:
+    """
+    Count data rows already written to a job's ``results.csv``.
+
+    :param out_dir: job's configured output directory, relative to the repo root.
+
+    :returns: number of completed result rows, or 0 if the file is missing or unreadable
+        (e.g. truncated by a crash before a single full row was flushed).
+    """
+    results_path = _ROOT / out_dir / _RESULTS_FILE
+    if not results_path.exists():
+        return 0
+    try:
+        with results_path.open(newline="", encoding="utf-8") as fh:
+            return max(0, sum(1 for _ in csv.reader(fh)) - 1)
+    except (OSError, csv.Error):
+        return 0
+
+
 def read_progress(main_log: Path) -> float:
     """
-    Estimate overall completion (0-100) for a running shard from the tail of its ``main.log``.
+    Estimate overall completion (0-100) for a running job from the tail of its ``main.log``.
 
-    Combines the last logged outer "Case: .../X/Y" line (cases fully completed so far) with the
-    last logged inner "Rep: .../A/B" line (repetition progress within the current case) into a
-    single smoothed percentage.  Best-effort: returns 0.0 before the first line is logged.
-
-    :param main_log: path to the shard's Hydra log file.
+    :param main_log: path to the job's Hydra log file.
 
     :returns: estimated completion percentage in [0, 100].
     """
@@ -254,6 +184,8 @@ def read_progress(main_log: Path) -> float:
     if not case_matches:
         return 0.0
     cases_done, cases_total = (int(v) for v in case_matches[-1])
+    if cases_total == 0:
+        return 0.0
 
     rep_matches = _REP_RE.findall(tail)
     rep_frac = 0.0
@@ -261,179 +193,123 @@ def read_progress(main_log: Path) -> float:
         rep_done, rep_total = (int(v) for v in rep_matches[-1])
         rep_frac = rep_done / rep_total if rep_total else 0.0
 
-    if cases_total == 0:
-        return 0.0
     return 100.0 * (cases_done + rep_frac) / cases_total
 
 
-def _detect_gpu_count() -> int:
-    """
-    Best-effort GPU count for the ``--workers`` default, via ``nvidia-smi -L``.
-
-    :returns: number of visible GPUs, or ``_DEFAULT_WORKERS`` if detection fails.
-    """
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "-L"], capture_output=True, text=True, timeout=5, check=False
-        )
-        count = len(result.stdout.strip().splitlines())
-        return count or _DEFAULT_WORKERS
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return _DEFAULT_WORKERS
-
-
-def _detect_cpu_count() -> int:
-    """
-    Logical CPU count visible to this process (cgroup-aware where available).
-
-    :returns: CPU count for ``--workers -1``, at least 1.
-    """
-    if hasattr(os, "sched_getaffinity"):
-        return len(os.sched_getaffinity(0))
-    return os.cpu_count() or _DEFAULT_WORKERS
-
-
-def resolve_workers(value: int | None) -> int:
-    """
-    Resolve the ``--workers`` CLI value into a concrete worker count.
-
-    ``None`` (unset) auto-detects the GPU count, falling back to ``_DEFAULT_WORKERS``.  ``-1``
-    means "as many as the machine allows" -- all logical CPUs -- following the ``n_jobs=-1``
-    convention from joblib/scikit-learn.  This can exceed the GPU count, which is fine for
-    CPU-only shards but means GPU-heavy shards (``ts-net``/``voterank`` selectors) will contend
-    for whatever ``--cuda-devices`` assigns them, or all pile onto ``cuda:0`` if left unset.
-
-    :param value: raw ``--workers`` value.
-
-    :returns: resolved worker count, at least 1.
-    """
-    if value is None:
-        return _detect_gpu_count()
-    if value == -1:
-        return _detect_cpu_count()
-    if value < 1:
-        raise ValueError(f"--workers must be a positive int or -1, got {value}")
-    return value
-
-
 def main() -> None:
-    """Parse CLI arguments, build shards, and run the bounded-concurrency batch."""
-    parser = argparse.ArgumentParser(description=__doc__)
+    """Parse CLI arguments, resolve jobs, and run the bounded-concurrency batch."""
+    parser = ArgumentParser(description=__doc__)
     parser.add_argument(
-        "configs", nargs="+", help="Base config names or fnmatch globs to shard and run"
+        "configs", nargs="+", help="Config names or fnmatch globs to run, e.g. 'full/and_*'"
     )
     parser.add_argument(
         "--workers",
         type=int,
-        default=None,
-        help=(
-            "Max concurrent shards (default: detected GPU count, else 4). "
-            "-1 means 'all logical CPUs' (joblib-style n_jobs=-1) -- can exceed the GPU count."
-        ),
-    )
-    parser.add_argument(
-        "--refresh", type=float, default=5.0, help="Progress refresh interval in seconds"
+        default=2,
+        help="Max concurrent jobs (default: 2 -- this machine is shared, not exclusive)",
     )
     parser.add_argument(
         "--cuda-devices",
         type=str,
         default=None,
-        help=(
-            "Comma-separated physical GPU ids to round-robin across concurrent shards via "
-            "CUDA_VISIBLE_DEVICES (e.g. '0,1,2,3'). Configs hardcode 'cuda:0', so without this "
-            "every concurrent shard would contend for the same physical GPU."
-        ),
+        help="Comma-separated physical GPU ids to round-robin via CUDA_VISIBLE_DEVICES "
+        "(e.g. '0,1'). Configs hardcode 'cuda:0', so without this every job contends for it.",
     )
     args = parser.parse_args()
+    if args.workers < 1:
+        raise ValueError(f"--workers must be >= 1, got {args.workers}")
     cuda_devices = args.cuda_devices.split(",") if args.cuda_devices else None
-    n_workers = resolve_workers(args.workers)
+    threads_per_job = max(1, (os.cpu_count() or args.workers) // args.workers)
 
-    gpu_count = _detect_gpu_count()
-    if n_workers > gpu_count and not cuda_devices:
-        print(
-            f"warning: --workers {n_workers} exceeds the {gpu_count} detected GPU(s) and "
-            "--cuda-devices is not set -- GPU-heavy shards (ts-net/voterank) will all contend "
-            "for cuda:0"
-        )
+    jobs = [build_job(name) for name in resolve_config_names(args.configs)]
+    jobs.sort(key=lambda j: j.weight_seconds)
+    # jobs.sort(key=lambda j: j.weight_seconds, reverse=True)
 
-    config_names = resolve_config_names(args.configs)
-    shards = [s for name in config_names for s in build_shards(name, n_workers)]
-    shards.sort(key=lambda s: s.weight_seconds, reverse=True)
+    print(
+        f"Planned {len(jobs)} job(s) across {args.workers} worker(s), "
+        f"{threads_per_job} threads/job:"
+    )
+    for j in jobs:
+        print(f"  {j.name:<35} ~{j.weight_seconds / 3600:6.1f}h")
 
-    print(f"Planned {len(shards)} shard(s) across {n_workers} worker(s):")
-    for s in shards:
-        print(f"  {s.label:<45} ~{s.weight_seconds / 3600:6.1f}h  -> {s.out_dir}")
+    skipped_running = [j for j in jobs if already_running(j.name)]
+    for j in skipped_running:
+        print(f"skipping {j.name}: already running")
 
-    skipped = [s for s in shards if already_running(s.out_dir)]
-    for s in skipped:
-        print(f"skipping {s.label}: {s.out_dir} is already running")
-    pending = [s for s in shards if s not in skipped]
+    remaining = [j for j in jobs if j not in skipped_running]
+    rows_done = {j.name: count_result_rows(j.out_dir) for j in remaining}
+    skipped_complete = [j for j in remaining if rows_done[j.name] >= j.expected_rows]
+    for j in skipped_complete:
+        print(f"skipping {j.name}: already complete ({rows_done[j.name]}/{j.expected_rows} rows)")
 
+    pending = [j for j in remaining if j not in skipped_complete]
     if not pending:
         print("Nothing to run.")
         return
 
-    launcher_logs_dir = _ROOT / "data" / "raw_results" / "_launcher_logs"
-    launcher_logs_dir.mkdir(parents=True, exist_ok=True)
-
+    _LAUNCHER_LOGS_DIR.mkdir(parents=True, exist_ok=True)
     running: dict[str, subprocess.Popen] = {}
     log_handles: dict[str, TextIO] = {}
     bars: dict[str, tqdm] = {}
     out_dirs: dict[str, str] = {}
     finished: list[tuple[str, int]] = []
 
-    def launch(shard: Shard, position: int) -> None:
-        safe_name = shard.label.replace("/", "__")
-        log_fh = (launcher_logs_dir / f"{safe_name}.log").open("w", encoding="utf-8")
+    def launch(job: Job, position: int) -> None:
+        safe_name = job.name.replace("/", "__")
+        log_fh = (_LAUNCHER_LOGS_DIR / f"{safe_name}.log").open("w", encoding="utf-8")
         env = os.environ.copy()
-        desc = shard.label[:45].ljust(45)
+        desc = job.name[:35].ljust(35)
         if cuda_devices:
             device = cuda_devices[position % len(cuda_devices)]
             env["CUDA_VISIBLE_DEVICES"] = device
             desc = f"[gpu {device}] {desc}"
-        running[shard.label] = subprocess.Popen(
-            ["uv", "run", "sqs", f"--config-name={shard.base_config}", *shard_overrides(shard)],
+        running[job.name] = subprocess.Popen(
+            [
+                "uv",
+                "run",
+                "sqs",
+                f"--config-name={job.name}",
+                f"+run.max_threads={threads_per_job}",
+            ],
             cwd=_ROOT,
             stdout=log_fh,
             stderr=log_fh,
             env=env,
         )
-        log_handles[shard.label] = log_fh
-        out_dirs[shard.label] = shard.out_dir
-        bars[shard.label] = tqdm(total=100, position=position, desc=desc, leave=True)
+        log_handles[job.name] = log_fh
+        out_dirs[job.name] = job.out_dir
+        bars[job.name] = tqdm(total=100, position=position, desc=desc, leave=True)
 
     try:
         while pending or running:
-            while pending and len(running) < n_workers:
+            while pending and len(running) < args.workers:
                 launch(pending.pop(0), position=len(bars))
 
-            for label in list(running):
-                proc = running[label]
-                pct = read_progress(_ROOT / out_dirs[label] / "main.log")
-                bars[label].n = round(pct)
-                bars[label].refresh()
+            for name in list(running):
+                bars[name].n = round(read_progress(_ROOT / out_dirs[name] / "main.log"))
+                bars[name].refresh()
 
-                return_code = proc.poll()
+                return_code = running[name].poll()
                 if return_code is not None:
-                    log_handles.pop(label).close()
-                    bars[label].n = 100 if return_code == 0 else bars[label].n
-                    bars[label].refresh()
-                    bars[label].close()
-                    del running[label]
-                    finished.append((label, return_code))
+                    log_handles.pop(name).close()
+                    bars[name].n = 100 if return_code == 0 else bars[name].n
+                    bars[name].refresh()
+                    bars[name].close()
+                    del running[name]
+                    finished.append((name, return_code))
 
-            time.sleep(args.refresh)
+            time.sleep(_REFRESH_SECONDS)
     finally:
         for bar in bars.values():
             if not bar.disable:
                 bar.close()
 
-    print("------------------------------------------------")
-    failed = [label for label, code in finished if code != 0]
+    print()
+    failed = [name for name, code in finished if code != 0]
     print(f"Done: {len(finished)} finished, {len(failed)} failed")
-    for label in failed:
-        safe_name = label.replace("/", "__")
-        print(f"  FAILED: {label} (see {launcher_logs_dir / f'{safe_name}.log'})")
+    for name in failed:
+        safe_name = name.replace("/", "__")
+        print(f"  FAILED: {name} (see {_LAUNCHER_LOGS_DIR / f'{safe_name}.log'})")
 
 
 if __name__ == "__main__":

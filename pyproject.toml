@@ -1,6 +1,6 @@
 [project]
 name = "sqs"
-version = "0.3.0"
+version = "0.4.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -26,6 +26,7 @@ dependencies = [
     "scipy>=1.11",
     "dvc~=3.66.1",
     "dvc-gdrive~=3.0.1",
+    "threadpoolctl>=3.6.0",
 ]
 
 [project.scripts]

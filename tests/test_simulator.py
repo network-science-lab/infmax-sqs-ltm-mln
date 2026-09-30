@@ -124,6 +124,37 @@ class TestSequentialSimulator:
         planted = sum(len(actors) for actors in result.seeding_events.values())
         assert planted == 1
 
+    def test_track_full_logs_false_skips_logger_but_keeps_active_counts(
+        self, simulator: SequentialSimulator, mock_strategy: MockSeedingStrategy
+    ) -> None:
+        """track_full_logs=False must leave the logger empty while still populating active_counts."""
+        result = simulator.perform_propagation(
+            n_seeds=2, strategy=mock_strategy, max_epochs=20, track_full_logs=False
+        )
+        assert result.logger.get_detailed_logs() == {}
+        assert len(result.active_counts) > 0
+
+    def test_track_full_logs_false_does_not_change_metrics(
+        self, toy_net: MultilayerNetwork, or_model: SQSMLTModel
+    ) -> None:
+        """extract_simulation_result must be identical regardless of track_full_logs."""
+        from sqs.misc.result_handler import extract_simulation_result
+
+        def _run(track_full_logs: bool) -> SequentialRunLog:
+            sim = SequentialSimulator(or_model, toy_net.copy())
+            return sim.perform_propagation(
+                n_seeds=3,
+                strategy=MockSeedingStrategy(),
+                max_epochs=20,
+                patience=3,
+                track_full_logs=track_full_logs,
+            )
+
+        total_actors = toy_net.get_actors_num()
+        with_logs = extract_simulation_result(_run(True), total_actors, n_seeds=3)
+        without_logs = extract_simulation_result(_run(False), total_actors, n_seeds=3)
+        assert with_logs == without_logs
+
     def test_reproducibility(self, toy_net: MultilayerNetwork) -> None:
         """Two runs with identical config must seed the same actors and reach the same coverage."""
         from sqs.misc.result_handler import extract_simulation_result
