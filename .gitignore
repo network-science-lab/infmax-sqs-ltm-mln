@@ -15,4 +15,5 @@
 .vscode
 .venv
 examples
+model
 REVIEW_REMARKS.md

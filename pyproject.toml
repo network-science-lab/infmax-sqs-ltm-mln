@@ -4,7 +4,10 @@ version = "0.3.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
-    { name = "Michał Czuba", email = "michal.czuba.1995@gmail.com" }
+    { name = "Michał Czuba", email = "michal.czuba.1995@gmail.com" },
+    { name = "Mateusz Stolarski", email="mateusz.stolarski@pwr.edu.pl" },
+    { name = "Mingshan Jia", email="Mingshan.Jia@uts.edu.au" },
+    { name = "Piotr Bródka", email="piotr.brodka@pwr.edu.pl" },
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -21,6 +24,8 @@ dependencies = [
     "torch-geometric>=2.8.0",
     "bidict>=0.23.1",
     "scipy>=1.11",
+    "dvc~=3.66.1",
+    "dvc-gdrive~=3.0.1",
 ]
 
 [project.scripts]

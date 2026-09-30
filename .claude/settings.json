@@ -1,5 +1,12 @@
 {
   "permissions": {
-    "deny": ["Bash(rm -rf*)", "Bash(git push -f*)", "Bash(git push --force*)"]
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(git push -f*)",
+      "Bash(git push --force*)"
+    ],
+    "allow": [
+      "Bash(.venv/bin/python -c ' *)"
+    ]
   }
 }

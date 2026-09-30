@@ -59,6 +59,8 @@ seeding_schedules:
     params:
       selector: "voterank"
       mode: "SS"
+      selector_params:
+        device: "cpu"
   - name: "static_ss_mds"
     class: "StaticSeedingStrategy"
     params:
@@ -100,6 +102,8 @@ seeding_schedules:
       selector: "voterank"
       mode: "SQ"
       batch_size: 1
+      selector_params:
+        device: "cpu"
   - name: "static_sq_mds"
     class: "StaticSeedingStrategy"
     params:
@@ -142,6 +146,8 @@ seeding_schedules:
       selector: "voterank"
       mode: "SQ_R"
       batch_size: 1
+      selector_params:
+        device: "cpu"
   - name: "static_sq_r_mds"
     class: "StaticSeedingStrategy"
     params:
