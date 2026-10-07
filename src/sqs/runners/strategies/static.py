@@ -1,11 +1,12 @@
 """Static seeding strategy backed by a pre-computed actor ranking."""
 
+from itertools import islice
 from typing import Any
 
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
-from sqs.runners.strategies.base import BaseSeedingStrategy
+from sqs.runners.strategies.base import ActorPool, BaseSeedingStrategy
 
 
 class StaticSeedingStrategy(BaseSeedingStrategy):
@@ -45,6 +46,7 @@ class StaticSeedingStrategy(BaseSeedingStrategy):
         """
         super().__init__(selector, mode, batch_size, selector_params)
         self._ranking: list[MLNetworkActor] | None = None
+        self._cursor = 0  # SQ / SQ_R: ranking position of the first eligible actor
 
     def get_or_compute_ranking(self, net: MultilayerNetwork) -> list[MLNetworkActor]:
         """
@@ -69,6 +71,7 @@ class StaticSeedingStrategy(BaseSeedingStrategy):
             a strategy instance with the same selector configuration.
         """
         self._ranking = ranking
+        self._cursor = 0
 
     def _candidates(
         self, net: MultilayerNetwork, remaining: list[MLNetworkActor]
@@ -90,5 +93,22 @@ class StaticSeedingStrategy(BaseSeedingStrategy):
         """
         if self._ranking is None:
             self._ranking = self._selector.actorwise(net)
-
-        return self._stable_candidates(self._ranking, remaining)  # type: ignore[arg-type]
+        pool = remaining if isinstance(remaining, ActorPool) else ActorPool(remaining)
+        # Ranking positions are unique, so filtering in ranking order equals
+        # _stable_candidates (sort by rank, then id) without sorting.
+        if self._mode == "SS":
+            return [pool[a.actor_id] for a in self._ranking if a.actor_id in pool.ids]
+        # SQ / SQ_R use only the first batch. Actors only ever leave `remaining`, so a cursor
+        # moved past ineligible ones never has to go back.
+        while (
+            self._cursor < len(self._ranking)
+            and self._ranking[self._cursor].actor_id not in pool.ids
+        ):
+            self._cursor += 1
+        batch = []
+        for actor in islice(self._ranking, self._cursor, None):
+            if len(batch) == self._batch_size:
+                break
+            if actor.actor_id in pool.ids:
+                batch.append(pool[actor.actor_id])
+        return batch

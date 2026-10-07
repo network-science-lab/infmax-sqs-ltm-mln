@@ -39,7 +39,9 @@ class SimulationFullResult(SimulationPartialResult):
     ss_mode: str
     rep: int
     wall_seconds: float
-    rss_delta_mb: float
+    cpu_seconds: float
+    peak_rss_mb: float
+    peak_rss_delta_mb: float
     peak_gpu_mb: float | None
 
     @classmethod
@@ -56,7 +58,9 @@ class SimulationFullResult(SimulationPartialResult):
         ss_mode: str = "",
         rep: int = 0,
         wall_seconds: float = 0.0,
-        rss_delta_mb: float = 0.0,
+        cpu_seconds: float = 0.0,
+        peak_rss_mb: float = 0.0,
+        peak_rss_delta_mb: float = 0.0,
         peak_gpu_mb: float | None = None,
     ) -> "SimulationFullResult":
         """
@@ -74,9 +78,11 @@ class SimulationFullResult(SimulationPartialResult):
         :param ss_mode: timing mode (e.g. ``"SS"``, ``"SQ"``, ``"SQ_R"``); empty string when
             the strategy has no mode parameter.
         :param wall_seconds: wall-clock time of the simulation run in seconds.
-        :param rss_delta_mb: peak RSS increase of the process during the run in MB.
+        :param cpu_seconds: CPU time of the process during the run in seconds.
+        :param peak_rss_mb: peak resident memory of the process during the run in MB.
+        :param peak_rss_delta_mb: ``peak_rss_mb`` minus the resident memory before the run.
         :param peak_gpu_mb: peak GPU memory allocated during the run in MB; ``None``
-            when running on CPU.
+            without CUDA.
 
         :returns: fully populated ``SimulationFullResult``.
         """
@@ -101,7 +107,9 @@ class SimulationFullResult(SimulationPartialResult):
             ss_mode=ss_mode,
             rep=rep,
             wall_seconds=wall_seconds,
-            rss_delta_mb=rss_delta_mb,
+            cpu_seconds=cpu_seconds,
+            peak_rss_mb=peak_rss_mb,
+            peak_rss_delta_mb=peak_rss_delta_mb,
             peak_gpu_mb=peak_gpu_mb,
         )
 
@@ -129,39 +137,15 @@ def _build_seedings(seeding_events: dict[int, list[str]], total_epochs: int) -> 
     return ";".join(segments)
 
 
-def _build_expositions(
-    active_counts: dict[int, int],
-    total_epochs: int,
-    seeding_events: dict[int, list[str]],
-) -> str:
+def _build_expositions(counts: list[int]) -> str:
     """
     Serialise per-epoch new-activation counts into the ``expositions`` column format.
 
-    Each segment (separated by ``;``) is the count of actors that first became ACTIVE
-    in that epoch.  For seeding epochs the count equals the number of seeds planted;
-    for LTM epochs it is derived from the cumulative active count.  Epochs with no new
-    activations produce ``"0"``.
+    :param counts: cumulative active actors after each epoch (seeds included).
 
-    :param active_counts: ``SequentialRunLog.active_counts`` -- mapping of LTM epoch to
-        the cumulative count of distinct active actors after that epoch.
-    :param total_epochs: index of the last logged epoch.
-    :param seeding_events: mapping of seeding epoch index to seeded actor IDs, used
-        to distinguish seeding epochs from LTM epochs.
-
-    :returns: the ``expositions`` column string.
+    :returns: ``;``-separated numbers of actors that became active in each epoch.
     """
-    prev_active = 0
-    segments: list[str] = []
-    for epoch in range(total_epochs + 1):
-        if epoch in seeding_events:
-            n = len(seeding_events[epoch])
-            prev_active += n
-        else:
-            active_count = active_counts.get(epoch, 0)
-            n = max(0, active_count - prev_active)
-            prev_active = max(prev_active, active_count)
-        segments.append(str(n))
-    return ";".join(segments)
+    return ";".join(str(c - p) for c, p in zip(counts, [0, *counts[:-1]]))
 
 
 def _compute_auc(expositions_str: str, norm: int) -> float:
@@ -210,28 +194,19 @@ def extract_simulation_result(
 
     :returns: extracted metrics ready to be combined with experiment parameters.
     """
-    active_counts = run_log.active_counts
-    total_epochs = max([*active_counts.keys(), *run_log.seeding_events.keys()], default=0)
-
-    prev_active = 0
-    simulation_length = 0
-    for epoch in range(total_epochs + 1):
-        if epoch in run_log.seeding_events:
-            prev_active += len(run_log.seeding_events[epoch])
-            simulation_length = epoch
-        else:
-            active_count = active_counts.get(epoch, 0)
-            if active_count > prev_active:
-                simulation_length = epoch
-                prev_active = active_count
-    exposed_nb = prev_active
+    counts = [run_log.active_counts[e] for e in sorted(run_log.active_counts)] or [0]
+    exposed_nb = counts[-1]
+    simulation_length = max(
+        (e for e in range(1, len(counts)) if counts[e] > counts[e - 1]), default=0
+    )
+    counts = counts[: simulation_length + 1]
     seed_nb = sum(len(ids) for ids in run_log.seeding_events.values())
     saved_seeds = max(0, n_seeds - seed_nb)
     unexposed_nb = total_actors - exposed_nb
     max_gain = total_actors - seed_nb
     gain = 100.0 * (exposed_nb - seed_nb) / max_gain if max_gain > 0 else 0.0
 
-    expositions = _build_expositions(active_counts, total_epochs, run_log.seeding_events)
+    expositions = _build_expositions(counts)
     return SimulationPartialResult(
         gain=gain,
         auc=_compute_auc(expositions, exposed_nb),
@@ -242,7 +217,7 @@ def extract_simulation_result(
         exposed_nb=exposed_nb,
         unexposed_nb=unexposed_nb,
         expositions=expositions,
-        seedings=_build_seedings(run_log.seeding_events, total_epochs),
+        seedings=_build_seedings(run_log.seeding_events, simulation_length),
     )
 
 

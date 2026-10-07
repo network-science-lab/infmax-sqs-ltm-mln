@@ -55,8 +55,7 @@ class SubnetSeedingStrategy(BaseSeedingStrategy):
         Re-rank the inactive subnet and return candidates in ranking order.
 
         The returned actors are objects from ``remaining`` (not from the
-        subnet), so the simulator's ``remaining.remove()`` call works
-        correctly.  An empty list is returned when no eligible actors remain.
+        subnet).  An empty list is returned when no eligible actors remain.
 
         :param net: current state of the multilayer network.
         :param remaining: actors not yet used as seeds.

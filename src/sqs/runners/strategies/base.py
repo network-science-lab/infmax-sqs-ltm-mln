@@ -1,12 +1,43 @@
 """Abstract base class for SS/SQ/SQ_R timing-mode seeding strategies."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
 from sqs.runners.selectors import SELECTOR_CLASSES
+
+
+class ActorPool:
+    """Actors still eligible for seeding: original order, O(1) lookup and removal."""
+
+    def __init__(self, actors: Iterable[MLNetworkActor]) -> None:
+        """Keep ``actors`` keyed by id."""
+        self._by_id = {a.actor_id: a for a in actors}
+
+    def __iter__(self) -> Iterator[MLNetworkActor]:
+        """Iterate over the actors in their original order."""
+        return iter(self._by_id.values())
+
+    def __len__(self) -> int:
+        """Return the number of actors."""
+        return len(self._by_id)
+
+    def __getitem__(self, actor_id: Any) -> MLNetworkActor:
+        """Return the actor with ``actor_id``."""
+        return self._by_id[actor_id]
+
+    @property
+    def ids(self) -> Any:
+        """Return a live set-like view of the actor ids."""
+        return self._by_id.keys()
+
+    def discard(self, actor_ids: Iterable[Any]) -> None:
+        """Remove the given actors (missing ones are ignored)."""
+        for actor_id in actor_ids:
+            self._by_id.pop(actor_id, None)
 
 
 class BaseSeedingStrategy(ABC):
@@ -100,8 +131,8 @@ class BaseSeedingStrategy(ABC):
         """
         Filter and sort candidates by selector rank (primary) then actor_id (secondary).
 
-        Actors are taken from ``remaining`` (preserving object identity for the
-        simulator's ``remaining.remove()`` calls) and ordered by their position
+        Actors are taken from ``remaining`` (the simulator removes them by id) and ordered by
+        their position
         in ``ranking`` first, with ``actor_id`` breaking any ties to ensure
         deterministic output when the selector assigns equal scores.
 

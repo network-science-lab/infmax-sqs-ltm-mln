@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from network_diffusion.logger import Logger
 from network_diffusion.mln.actor import MLNetworkActor
@@ -11,6 +12,7 @@ from network_diffusion.models.utils.types import NetworkUpdateBuffer as NUBuff
 from network_diffusion.simulator import Simulator
 
 from sqs.runners.strategies import SeedingStrategy
+from sqs.runners.strategies.base import ActorPool
 
 _log = logging.getLogger(__name__)
 
@@ -43,8 +45,8 @@ class SequentialSimulator(Simulator):
     """
     Simulator that plants seeds during the LTM run loop according to a strategy.
 
-    Inherits utility methods (``_update_counter``) from ``network_diffusion.Simulator``
-    and overrides ``perform_propagation`` with a strategy-driven signature.
+    Overrides ``network_diffusion.Simulator.perform_propagation`` with a strategy-driven
+    signature.
     """
 
     def perform_propagation(  # type: ignore[override]
@@ -58,11 +60,9 @@ class SequentialSimulator(Simulator):
         """
         Run a seeding simulation on the network held by this instance.
 
-        At every epoch the strategy is asked for a batch of actors to seed.  If
-        it returns a non-empty batch, those actors are planted and the epoch is
-        logged as a seeding event (no LTM step runs that epoch).  Otherwise one
-        LTM step executes.  The epoch counter is continuous across the whole
-        simulation.
+        Every epoch is ``seed (if the strategy returns any) -> one LTM step``, so diffusion
+        always follows each seeding event within the same epoch. The LTM step evaluates only
+        inactive neighbours of newly active actors; the result equals a full MLTModel step.
 
         The loop terminates when all seeds have been planted and stagnation is
         detected, or after ``max_epochs`` epochs regardless.  Pass
@@ -96,11 +96,8 @@ class SequentialSimulator(Simulator):
                 "an unbounded run with no stagnation check would loop forever."
             )
         if patience is not None and patience > 1:
-            # In SQ_R mode each revival seed requires patience + 1 LTM epochs to confirm
-            # stagnation (1 epoch where stopping_counter resets because old_states == seed_buffs,
-            # then patience identical epochs).  The rough lower bound on total epochs needed is
-            # n_seeds * (patience + 2).  SS and SQ modes are unaffected.
-            sqr_min_epochs = n_seeds * (patience + 2)
+            # In SQ_R mode each revival seed needs its own epoch plus patience stagnant ones
+            sqr_min_epochs = n_seeds * (patience + 1)
             if max_epochs is not None and sqr_min_epochs > max_epochs:
                 _log.warning(
                     "patience=%d with n_seeds=%d needs approximately %d epochs in SQ_R mode "
@@ -115,96 +112,55 @@ class SequentialSimulator(Simulator):
                 "SequentialSimulator requires a MultilayerNetwork, not a TemporalNetwork."
             )
 
-        logger = Logger(str(self._model), str(self._network))
+        net = self._network
+        # str(net) computes network statistics (e.g. clustering): costly, only for detailed logs
+        logger = Logger(str(self._model), str(net) if track_full_logs else "")
         seeding_events: dict[int, list[str]] = {}
         active_counts: dict[int, int] = {}
-        seeds_planted = 0
+        self._model.update_network(net, self._model.determine_initial_states(net))
+        remaining = ActorPool(net.get_actors())
+        actors = {a.actor_id: a for a in remaining}
+        self._active_neighbours: dict[tuple[str, Any], int] = {}  # (layer, actor id) -> count
+        seeds_planted = active = 0
+        touched: set[Any] = set()  # actors with a new active neighbour since the last LTM step
         stagnant = False
-        old_states: list[NUBuff] = []
         self.stopping_counter = 0
-
-        initial_states = self._model.determine_initial_states(self._network)
-        self._model.update_network(self._network, initial_states)
-
-        remaining: list[MLNetworkActor] = list(self._network.get_actors())
 
         epoch = 0
         while max_epochs is None or epoch < max_epochs:
-            # --- seeding epoch ---
-            # Strategy decides whether to plant seeds this epoch and which actors to use.
-            # Seeding and LTM steps are mutually exclusive: a seeding epoch skips LTM so
-            # that the network state seen by the strategy is always post-LTM, not mid-step.
+            # --- seeding: the strategy sees the state after the previous diffusion step ---
+            seeds: list[MLNetworkActor] = []
             if seeds_planted < n_seeds:
-                batch = strategy.next_batch(self._network, remaining, epoch, stagnant)
-                batch = batch[: n_seeds - seeds_planted]  # cap to remaining budget
-                if batch:
-                    for actor in batch:
-                        remaining.remove(actor)  # remove before seeding so strategy never re-seeds
-                    seed_buffs: list[NUBuff] = [
-                        NUBuff(
-                            node_name=actor.actor_id,
-                            layer_name=layer,
-                            new_state=MLTModel.ACTIVE_STATE,
-                        )
-                        for actor in batch
-                        for layer in actor.layers
-                    ]
-                    seed_json = self._model.update_network(self._network, seed_buffs)
-                    seeding_events[epoch] = [str(a.actor_id) for a in batch]
-                    logger.add_global_stat(self._model.get_states_num(self._network))
-                    if track_full_logs:
-                        # partial snapshot: seeded actors only
-                        logger.add_local_stat(epoch, seed_json)
-                    seeds_planted += len(batch)
-                    stagnant = False
-                    self.stopping_counter = 0
-                    old_states = seed_buffs
-                    epoch += 1
-                    continue
+                seeds = strategy.next_batch(net, remaining, epoch, stagnant)
+                seeds = seeds[: n_seeds - seeds_planted]
+            if seeds:
+                remaining.discard(a.actor_id for a in seeds)
+                touched |= self._activate(seeds)
+                seeding_events[epoch] = [str(a.actor_id) for a in seeds]
+                seeds_planted += len(seeds)
 
-            # --- LTM epoch ---
-            # network_evaluation_step returns the proposed next state for every node;
-            # update_network applies it and returns the full state snapshot for logging.
-            new_states = self._model.network_evaluation_step(self._network)
-            epoch_json = self._model.update_network(self._network, new_states)
-            logger.add_global_stat(self._model.get_states_num(self._network))
-            # new_states is a full snapshot (every actor, every layer), so the count of
-            # distinct active node_names is the cumulative active-actor count after this
-            # epoch.  Tracked unconditionally (O(1) to store) so result metrics never need
-            # the full per-actor logger snapshot below, which is what makes track_full_logs
-            # safe to disable on large networks with long-running SQ_R schedules.
-            active_counts[epoch] = len(
-                {buff.node_name for buff in new_states if buff.new_state == MLTModel.ACTIVE_STATE}
-            )
+            # --- diffusion: one synchronous LTM step ---
+            # Only inactive actors with a new active neighbour can cross the threshold, so the
+            # result equals MLTModel.network_evaluation_step on the whole network.
+            candidates = [actors[i] for i in touched if i in remaining.ids]
+            activated = self._model.activations(net, candidates, self._active_neighbours)
+            remaining.discard(a.actor_id for a in activated)
+            touched = self._activate(activated)
+            active += len(seeds) + len(activated)
+            active_counts[epoch] = active
             if track_full_logs:
-                logger.add_local_stat(epoch, epoch_json)  # full snapshot: all actors
-
-            # Prune actors from remaining that organically activated this epoch.
-            # Keeping remaining accurate eliminates the need for is_already_active()
-            # checks inside every strategy on every call.
-            remaining_ids = {a.actor_id for a in remaining}
-            newly_active = {
-                buff.node_name
-                for buff in new_states
-                if buff.new_state == MLTModel.ACTIVE_STATE and buff.node_name in remaining_ids
-            }
-            if newly_active:
-                remaining = [a for a in remaining if a.actor_id not in newly_active]
+                logger.add_global_stat(self._model.get_states_num(net))
+                logger.add_local_stat(epoch, self._snapshot())
 
             if not remaining:
-                # Every actor is either seeded or organically active. LTM activation is
-                # monotone, so the network has reached its final fixed point regardless of
-                # whether the full seed budget was planted -- there are no candidates left
-                # for the strategy to seed and no further state changes are possible.
-                # Waiting for seeds_planted to reach n_seeds here would loop forever when
-                # max_epochs is None.
+                # Every actor is seeded or active: the fixed point is reached even if part of the
+                # budget is left (otherwise the loop would never end with max_epochs=None).
                 break
 
             if patience is not None:
-                self._update_counter(new_states, old_states)
+                # Stagnation: `patience` consecutive epochs without any new active actor
+                self.stopping_counter = 0 if seeds or activated else self.stopping_counter + 1
                 stagnant = self.stopping_counter >= patience
-                if not stagnant:
-                    old_states = new_states
                 if seeds_planted >= n_seeds and stagnant:
                     break
 
@@ -214,3 +170,30 @@ class SequentialSimulator(Simulator):
         return SequentialRunLog(
             logger=logger, seeding_events=seeding_events, active_counts=active_counts
         )
+
+    def _activate(self, actors: list[MLNetworkActor]) -> set[Any]:
+        """Set ``actors`` active on all their layers; return ids of their neighbours."""
+        self._model.update_network(
+            self._network,
+            [
+                NUBuff(node_name=a.actor_id, layer_name=layer, new_state=MLTModel.ACTIVE_STATE)
+                for a in actors
+                for layer in a.layers
+            ],
+        )
+        neighbours = set()
+        for actor in actors:
+            for layer in actor.layers:
+                for nb in self._network.layers[layer].neighbors(actor.actor_id):
+                    key = (layer, nb)
+                    self._active_neighbours[key] = self._active_neighbours.get(key, 0) + 1
+                    neighbours.add(nb)
+        return neighbours
+
+    def _snapshot(self) -> list[dict[str, str]]:
+        """Return the state of every node (for detailed logs)."""
+        return [
+            NUBuff(node_name=node, layer_name=layer, new_state=status).to_json()
+            for layer, graph in self._network.layers.items()
+            for node, status in graph.nodes(data="status")
+        ]

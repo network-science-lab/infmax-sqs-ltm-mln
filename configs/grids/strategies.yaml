@@ -1,0 +1,46 @@
+# Static configs from sources re-run with other strategies (see scripts/run_grid.py).
+
+# source name -> glob over config names (multi-schedule configs are split per schedule)
+sources:
+  full: full/*
+  arxiv: arxiv/*
+  timik: timik/*
+  aucs: full_experiment_*_aucs
+
+# Adaptive off: improved version parked in git stash ("adaptive push score")
+strategies:
+  SubnetSeedingStrategy:
+    prefix: subnet
+    results_root: data/subnet_results
+  AdaptiveSeedingStrategy:
+    prefix: adaptive
+    results_root: data/adaptive_results
+
+# SS skipped (for Subnet equivalent to Static SS)
+modes:
+  - SQ
+  - SQ_R
+
+# Transitional zone of Static results: OR 0.6-0.9, AND 0.4-0.6
+mi_values:
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+
+seed_budgets:
+  OR:
+    - 0.05
+    - 0.15
+    - 0.25
+  AND:
+    - 0.15
+    - 0.25
+    - 0.35
+
+exclude:
+  timik:
+    modes:
+      - SQ_R

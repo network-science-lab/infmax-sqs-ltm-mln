@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Pairwise Wilcoxon signed-rank tests with Benjamini-Hochberg FDR correction.
 
-Loads a results.csv produced by the spreading pipeline, groups rows by the
-dimensions specified in the config, and runs pairwise Wilcoxon signed-rank tests
-for each (group, metric) combination.  Observations are paired by ``rep`` —
-repetition i of method A is matched to repetition i of method B, which ran on
-the same network instance under identical conditions.
+Loads a results.csv produced by the spreading pipeline, averages each metric over repetitions
+per cell (``group_by`` + ``pair_by`` + method), and runs pairwise Wilcoxon signed-rank tests
+within each ``group_by`` group, pairing methods by cell (``pair_by``, e.g. mi x budget).
+Repetitions are not independent observations (deterministic rankings give identical reps), so
+testing over them would be pseudoreplication. Zero differences are split (``zsplit``).
 
 FDR correction (BH) is applied per metric across all groups and pairs.
 
@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+from glob import glob
 from itertools import combinations
 from pathlib import Path
 
@@ -54,14 +55,16 @@ def _rank_biserial_wilcoxon(statistic: float, n: int, median_a: float, median_b:
 
 def _collect_raw_tests(df: pd.DataFrame, cfg: dict) -> list[dict]:
     group_by: list[str] = cfg["group_by"]
+    pair_by: list[str] = cfg["pair_by"]
     metrics: list[str] = cfg["metrics"]
     comp_mode: str = cfg["comparisons"]["mode"]
     baseline: str | None = cfg["comparisons"].get("baseline")
     alternative: str = cfg.get("alternative", "two-sided")
 
     records = []
+    cells = df.groupby([*group_by, *pair_by, "ss_method"])[metrics].mean().reset_index()
 
-    for group_vals, grp in df.groupby(group_by, sort=True):
+    for group_vals, grp in cells.groupby(group_by, sort=True):
         if not isinstance(group_vals, tuple):
             group_vals = (group_vals,)
         group_info = dict(zip(group_by, group_vals))
@@ -77,19 +80,16 @@ def _collect_raw_tests(df: pd.DataFrame, cfg: dict) -> list[dict]:
 
         for metric in metrics:
             for method_a, method_b in pairs:
-                sub_a = grp.loc[grp["ss_method"] == method_a, ["rep", metric]].dropna()
-                sub_b = grp.loc[grp["ss_method"] == method_b, ["rep", metric]].dropna()
-                # align by rep so pairing is exact
-                merged = sub_a.merge(sub_b, on="rep", suffixes=("_a", "_b"))
+                sub_a = grp.loc[grp["ss_method"] == method_a, [*pair_by, metric]].dropna()
+                sub_b = grp.loc[grp["ss_method"] == method_b, [*pair_by, metric]].dropna()
+                merged = sub_a.merge(sub_b, on=pair_by, suffixes=("_a", "_b"))
                 if len(merged) < 2:
                     continue
                 a_vals = merged[f"{metric}_a"].to_numpy()
                 b_vals = merged[f"{metric}_b"].to_numpy()
-                # wilcoxon requires non-zero differences
-                diffs = a_vals - b_vals
-                if np.all(diffs == 0):
-                    continue
-                stat, p = wilcoxon(a_vals, b_vals, alternative=alternative)
+                if np.all(a_vals == b_vals):
+                    continue  # identical in every cell: nothing to test
+                stat, p = wilcoxon(a_vals, b_vals, zero_method="zsplit", alternative=alternative)
                 n_pairs = len(merged)
                 median_a = float(np.median(a_vals))
                 median_b = float(np.median(b_vals))
@@ -157,10 +157,13 @@ def main() -> None:
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
-    df = pd.read_csv(cfg["results_csv"])
+    paths = sorted(glob(cfg["results_csv"]))
+    if not paths:
+        raise FileNotFoundError(f"No results match {cfg['results_csv']!r}")
+    df = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
     alpha: float = cfg.get("alpha", 0.05)
 
-    print(f"Loaded {len(df):,} rows from {cfg['results_csv']}")
+    print(f"Loaded {len(df):,} rows from {len(paths)} file(s) matching {cfg['results_csv']}")
 
     records = _collect_raw_tests(df, cfg)
     if not records:

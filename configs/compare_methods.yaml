@@ -1,10 +1,9 @@
 # Config for scripts/compare_methods.py
 # Usage: uv run python scripts/compare_methods.py --config configs/compare_methods.yaml
 
-# Path to results.csv produced by the spreading pipeline.
-# Concatenate OR and AND results first if running a joint analysis:
-#   python -c "import pandas as pd; pd.concat([pd.read_csv('data/raw_results/full_or/results.csv'), pd.read_csv('data/raw_results/full_and/results.csv')]).to_csv('data/raw_results/results_all.csv', index=False)"
-results_csv: "./data/raw_results/results_all.csv"
+# results.csv path or glob; matching files are concatenated. Jobs of the Static grid
+# (data/static_results/<source>/<job>/), without _chunks slices or merged full_<network> files.
+results_csv: "./data/static_results/*/*/results.csv"
 
 out_dir: "./data/processed/stats"
 
@@ -14,12 +13,13 @@ metrics:
   - auc
   - saved_seeds
 
-# Rows are grouped by these columns before testing.
-# Tests run independently within each unique combination.
-# Finer grouping = more tests but condition-specific conclusions.
+# Tests run independently within each group (one test per group, metric and pair of methods).
 group_by:
   - protocol
   - network
+
+# Paired observations within a group: cells (metric averaged over repetitions first).
+pair_by:
   - mi_value
   - seed_budget
 
@@ -28,10 +28,10 @@ group_by:
 #   vs_baseline — each method vs the single baseline named below
 comparisons:
   mode: "all_pairs"
-  baseline: "ss_deg_c"  # used only when mode=vs_baseline
+  baseline: "ss_deg_c_d" # used only when mode=vs_baseline
 
 # Significance threshold (applied to BH-adjusted p-values).
 alpha: 0.05
 
-# Mann-Whitney U alternative hypothesis: two-sided | greater | less.
+# Wilcoxon alternative hypothesis: two-sided | greater | less.
 alternative: "two-sided"

@@ -16,4 +16,5 @@
 .venv
 examples
 model
+temp/
 REVIEW_REMARKS.md

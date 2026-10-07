@@ -2,16 +2,14 @@
 """
 Verify that every matched grid job has actually finished computing its results.
 
-Cross-checks each config's expected row count (protocols x mi_values x seed_budgets x
-seeding_schedules x repetitions) against what is actually in its ``results.csv``. Rows are
-uniquely keyed by (network, protocol, mi_value, seed_budget, ss_method, rep); duplicates of
-that key -- the signature left behind by two overlapping ``run_grid.py`` launches writing to
-the same file (see ``already_running`` in ``run_grid.py``) -- are removed in place by
-default, keeping the first occurrence of each key.
+Cross-checks each job's expected row count (mi_values x seed_budgets x repetitions) against its
+``results.csv``. Rows are keyed by (network, protocol, mi_value, seed_budget, ss_method, rep);
+duplicate keys (e.g. from two overlapping launches writing the same file) are removed in place by
+default, keeping the first occurrence.
 
 Usage:
-    uv run python scripts/verify_grid_results.py "full/*" "arxiv/*" "timik/*"
-    uv run python scripts/verify_grid_results.py "full/*" --check-only
+    uv run python scripts/verify_grid_results.py configs/grids/static.yaml "static/*"
+    uv run python scripts/verify_grid_results.py configs/grids/static.yaml "*" --check-only
 
 Exits with status 1 if any matched job is pending, incomplete, unreadable, or has more rows
 than expected once duplicates are resolved; exits 0 only when every matched job has exactly
@@ -25,8 +23,8 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_grid import _RESULTS_FILE, _ROOT, Job, build_job, resolve_config_names  # noqa: E402
+from sqs.grid.jobs import RESULTS_FILE, ROOT, Job
+from sqs.grid.spec import select
 
 _KEY_COLUMNS = ["network", "protocol", "mi_value", "seed_budget", "ss_method", "rep"]
 _PROBLEM_STATUSES = ("PENDING", "INCOMPLETE", "TOO_MANY_ROWS", "DUPLICATES", "UNREADABLE")
@@ -51,7 +49,7 @@ def check_job(job: Job, dedupe: bool) -> CheckResult:
 
     :returns: rows remaining, number of duplicate rows found/removed, and an overall status.
     """
-    results_path = _ROOT / job.out_dir / _RESULTS_FILE
+    results_path = ROOT / job.out_dir / RESULTS_FILE
     if not results_path.exists():
         return CheckResult(rows=0, duplicates_removed=0, status="PENDING")
 
@@ -78,12 +76,35 @@ def check_job(job: Job, dedupe: bool) -> CheckResult:
     return CheckResult(rows=rows, duplicates_removed=duplicate_count, status=status)
 
 
+def mode_violations(jobs: list[Job]) -> pd.DataFrame:
+    """
+    Return Static cells where SQ or SQ_R gain is below SS.
+
+    :param jobs: jobs to check (non-Static and missing results are ignored).
+
+    :returns: offending rows with the gain of each mode.
+    """
+    key = ["network", "protocol", "mi_value", "seed_budget", "ss_selector", "rep"]
+    frames = []
+    for job in jobs:
+        path = ROOT / job.out_dir / RESULTS_FILE
+        if job.schedule["class"] == "StaticSeedingStrategy" and path.exists():
+            frames.append(pd.read_csv(path, usecols=[*key, "ss_mode", "gain"]))
+    if not frames:
+        return pd.DataFrame()
+    gains = pd.concat(frames).pivot_table(index=key, columns="ss_mode", values="gain")
+    bad = pd.Series(False, index=gains.index)
+    for mode in ("SQ", "SQ_R"):
+        if {"SS", mode} <= set(gains.columns):
+            bad |= gains[mode] < gains["SS"] - 1e-9
+    return gains[bad].reset_index()
+
+
 def main() -> None:
     """Parse CLI arguments and report completeness/integrity of matched grid jobs."""
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "configs", nargs="+", help="Config names or fnmatch globs to check, e.g. 'full/*'"
-    )
+    parser.add_argument("spec", type=Path, help="grid spec, e.g. configs/grids/static.yaml")
+    parser.add_argument("patterns", nargs="+", help="globs over job names, e.g. 'static/full/*'")
     parser.add_argument(
         "--check-only",
         action="store_true",
@@ -91,7 +112,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    jobs = [build_job(name) for name in resolve_config_names(args.configs)]
+    jobs = select(args.spec, args.patterns)
     results = {job.name: check_job(job, dedupe=not args.check_only) for job in jobs}
 
     counts = {status: 0 for status in ("OK", *_PROBLEM_STATUSES)}
@@ -114,11 +135,16 @@ def main() -> None:
     if problems:
         print()
         for job, result in problems:
-            print(f"  {result.status:<14} {job.name:<35} {result.rows}/{job.expected_rows} rows")
+            print(f"  {result.status:<14} {job.name:<45} {result.rows}/{job.expected_rows} rows")
 
-    if any(counts[status] for status in _PROBLEM_STATUSES):
+    violations = mode_violations(jobs)
+    if len(violations):
+        print(f"\n  SQ / SQ_R below SS in {len(violations)} (cell, rep) pairs (rankings differ?):")
+        print(violations.groupby(["network", "ss_selector"]).size().to_string())
+
+    if any(counts[status] for status in _PROBLEM_STATUSES) or len(violations):
         sys.exit(1)
-    print("\nAll matched jobs complete and clean.")
+    print("\nAll matched jobs complete and clean; SQ / SQ_R >= SS everywhere.")
 
 
 if __name__ == "__main__":
