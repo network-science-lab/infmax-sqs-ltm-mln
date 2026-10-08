@@ -1,11 +1,18 @@
 """Subnet seeding strategy with per-call re-ranking on inactive actors."""
 
+import heapq
+from collections import defaultdict
 from typing import Any
 
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 
-from sqs.runners.strategies.base import BaseSeedingStrategy
+from sqs.runners.strategies.base import ActorPool, BaseSeedingStrategy
+
+# Selectors whose first choice on the subnet is the actor with the highest neighbour score
+# (discount and VoteRank only change later positions), so SQ / SQ_R with batch_size 1 can track
+# the scores incrementally instead of re-ranking the subnet at every seed. Ties: lowest id.
+_FIRST_PICK_SELECTORS = {"deg-c", "deg-c-d", "nghb-s", "nghb-sd", "voterank"}
 
 
 class SubnetSeedingStrategy(BaseSeedingStrategy):
@@ -47,6 +54,12 @@ class SubnetSeedingStrategy(BaseSeedingStrategy):
             the selector constructor.  ``None`` is equivalent to ``{}``.
         """
         super().__init__(selector, mode, batch_size, selector_params)
+        self._selector_key = selector
+        self.first_pick = mode != "SS" and batch_size == 1 and selector in _FIRST_PICK_SELECTORS
+        self._weights: dict[Any, dict[Any, int]] | None = None
+        self._scores: dict[Any, int] = {}
+        self._heap: list[tuple[int, Any]] = []
+        self._seen_removed = 0
 
     def _candidates(
         self, net: MultilayerNetwork, remaining: list[MLNetworkActor]
@@ -63,8 +76,51 @@ class SubnetSeedingStrategy(BaseSeedingStrategy):
         :returns: actors eligible for seeding, ordered by the fresh subnet
             ranking.
         """
+        if self.first_pick:
+            return self._first_candidate(net, remaining)
         subnet = self._build_subnet(net, remaining)
         if subnet.get_actors_num() == 0:
             return []
         ranking = self._selector.actorwise(subnet)
         return self._stable_candidates(ranking, remaining)
+
+    def _neighbour_weights(self, net: MultilayerNetwork) -> dict[Any, dict[Any, int]]:
+        """Per actor: neighbour id -> its contribution to the selector's first-round score."""
+        weights: dict[Any, dict[Any, int]] = defaultdict(dict)
+        if self._selector_key == "voterank":  # same link multiset as VoteRankSelector
+            pairs = [(a.actor_id, b.actor_id) for a, b in net.get_links()]
+        else:
+            pairs = [(u, v) for graph in net.layers.values() for u, v in graph.edges()]
+        unit = self._selector_key in ("nghb-s", "nghb-sd")
+        for u, v in pairs:
+            for a, b in ((u, v), (v, u)):
+                weights[a][b] = 1 if unit else weights[a].get(b, 0) + 1
+        return weights
+
+    def _first_candidate(
+        self, net: MultilayerNetwork, remaining: list[MLNetworkActor]
+    ) -> list[MLNetworkActor]:
+        """Return the subnet's top actor, keeping neighbour scores up to date incrementally."""
+        pool = remaining if isinstance(remaining, ActorPool) else ActorPool(remaining)
+        if self._weights is None or pool is not remaining:  # first call, or no removal log
+            self._weights = self._weights or self._neighbour_weights(net)
+            self._scores = {
+                aid: sum(w for nb, w in self._weights.get(aid, {}).items() if nb in pool.ids)
+                for aid in pool.ids
+            }
+            self._heap = [(-score, aid) for aid, score in self._scores.items()]
+            heapq.heapify(self._heap)
+            self._seen_removed = len(pool.removed)
+        for gone in pool.removed[self._seen_removed :]:
+            self._scores.pop(gone, None)
+            for nb, weight in self._weights.get(gone, {}).items():
+                if nb in self._scores:
+                    self._scores[nb] -= weight
+                    heapq.heappush(self._heap, (-self._scores[nb], nb))
+        self._seen_removed = len(pool.removed)
+        while self._heap:
+            neg, aid = self._heap[0]
+            if aid in self._scores and -neg == self._scores[aid]:
+                return [pool[aid]]
+            heapq.heappop(self._heap)  # stale entry
+        return []

@@ -157,10 +157,15 @@ def main() -> None:
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
-    paths = sorted(glob(cfg["results_csv"]))
+    patterns = cfg["results_csv"]
+    patterns = [patterns] if isinstance(patterns, str) else patterns
+    paths = sorted(path for pattern in patterns for path in glob(pattern))
     if not paths:
         raise FileNotFoundError(f"No results match {cfg['results_csv']!r}")
-    df = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+    skip = {"expositions", "seedings"}  # per-epoch strings, large for big networks
+    df = pd.concat(
+        [pd.read_csv(path, usecols=lambda c: c not in skip) for path in paths], ignore_index=True
+    )
     alpha: float = cfg.get("alpha", 0.05)
 
     print(f"Loaded {len(df):,} rows from {len(paths)} file(s) matching {cfg['results_csv']}")

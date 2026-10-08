@@ -1,0 +1,6 @@
+outs:
+- md5: d56a2b13f12b8d8f48f4d41121f879cd.dir
+  size: 10870213
+  nfiles: 1
+  hash: md5
+  path: lazega

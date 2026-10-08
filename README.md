@@ -55,8 +55,8 @@ completes, so a killed or crashed job keeps whatever it has already finished.
 Grids of jobs are defined by specs in `configs/grids/` (each job re-runs a Static base config with
 one strategy, mode and selector via Hydra overrides) and run with `scripts/run_grid.py`:
 
-- `static.yaml`: Static baseline, results in `data/static_results/`
-- `strategies.yaml`: Subnet, results in `data/subnet_results/`
+- `static.yaml`: Static baseline, jobs in `data/_static_results/`
+- `strategies.yaml`: Subnet and Adaptive, jobs in `data/_subnet_results/`, `data/_adaptive_results/`
 
 ```bash
 uv run python scripts/precompute_rankings.py configs/grids/static.yaml "static/*" --device cpu --workers 16
@@ -72,11 +72,11 @@ that are merged once all are complete. Rankings are cached in `data/rankings/v<N
 ranking. `precompute_rankings.py` fills the cache up front.
 
 Each job covers one (protocol, network, mode, selector) slice; `scripts/merge_results.py` regroups
-finished jobs by network into one `full_<network>/results.csv` per network:
+finished jobs into one `<out-root>/<network>/results.csv` per network (DVC-tracked):
 
 ```bash
-uv run python scripts/merge_results.py data/static_results/full data/static_results/aucs \
-  data/static_results/arxiv data/static_results/timik --out-root data/static_results
+uv run python scripts/merge_results.py data/_static_results/{full,aucs,arxiv,timik} \
+  --out-root data/static_results
 ```
 
 To test the pipeline on a small toy network first:

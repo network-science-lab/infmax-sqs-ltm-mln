@@ -1,0 +1,6 @@
+outs:
+- md5: de211820f28e468c1c106c190fe4f92d.dir
+  size: 68545572
+  nfiles: 1
+  hash: md5
+  path: sf5

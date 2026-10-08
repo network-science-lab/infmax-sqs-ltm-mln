@@ -4,6 +4,7 @@ import csv
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 RESULTS_FILE = "results.csv"
 MODES = {"SS", "SQ", "SQ_R"}
+csv.field_size_limit(sys.maxsize)  # seedings of large networks exceed the default
 
 # Seconds per rep of Static by (network, mode), estimated by test simulations simulator
 SECONDS_PER_REP = {
@@ -25,19 +27,18 @@ SECONDS_PER_REP = {
     "sf3": {"SS": 0.054, "SQ": 0.09, "SQ_R": 0.09},
     "sf5": {"SS": 0.12, "SQ": 0.15, "SQ_R": 0.15},
     "arxiv_netscience_coauthorship": {"SS": 0.73, "SQ": 0.92, "SQ_R": 0.95},
-    "timik1q2009": {"SS": 7.2, "SQ": 12.62, "SQ_R": 12.62},  # SQ_R not run: as SQ
+    "timik1q2009": {"SS": 7.2, "SQ": 12.62, "SQ_R": 15.0},
 }
-# Cost per (strategy, mode) relative to Static, from er2/ckm/sf3 smoke runs
 STRATEGY_WEIGHT = {
     ("StaticSeedingStrategy", "SS"): 1.0,
     ("StaticSeedingStrategy", "SQ"): 1.0,
     ("StaticSeedingStrategy", "SQ_R"): 1.0,
     ("SubnetSeedingStrategy", "SS"): 1.0,
-    ("SubnetSeedingStrategy", "SQ"): 20.0,
-    ("SubnetSeedingStrategy", "SQ_R"): 1.6,
+    ("SubnetSeedingStrategy", "SQ"): 2.0,
+    ("SubnetSeedingStrategy", "SQ_R"): 2.0,
     ("AdaptiveSeedingStrategy", "SS"): 1.0,
-    ("AdaptiveSeedingStrategy", "SQ"): 3.5,
-    ("AdaptiveSeedingStrategy", "SQ_R"): 1.2,
+    ("AdaptiveSeedingStrategy", "SQ"): 12.0,
+    ("AdaptiveSeedingStrategy", "SQ_R"): 12.0,
 }
 
 

@@ -1,9 +1,9 @@
 # Config for scripts/compare_methods.py
 # Usage: uv run python scripts/compare_methods.py --config configs/compare_methods.yaml
 
-# results.csv path or glob; matching files are concatenated. Jobs of the Static grid
-# (data/static_results/<source>/<job>/), without _chunks slices or merged full_<network> files.
-results_csv: "./data/static_results/*/*/results.csv"
+# results.csv path or glob (or a list of them); matching files are concatenated.
+# Static results merged per network by scripts/merge_results.py.
+results_csv: "./data/static_results/*/results.csv"
 
 out_dir: "./data/processed/stats"
 

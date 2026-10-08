@@ -16,6 +16,7 @@ class ActorPool:
     def __init__(self, actors: Iterable[MLNetworkActor]) -> None:
         """Keep ``actors`` keyed by id."""
         self._by_id = {a.actor_id: a for a in actors}
+        self.removed: list[Any] = []  # ids in removal order, for incremental consumers
 
     def __iter__(self) -> Iterator[MLNetworkActor]:
         """Iterate over the actors in their original order."""
@@ -37,7 +38,8 @@ class ActorPool:
     def discard(self, actor_ids: Iterable[Any]) -> None:
         """Remove the given actors (missing ones are ignored)."""
         for actor_id in actor_ids:
-            self._by_id.pop(actor_id, None)
+            if self._by_id.pop(actor_id, None) is not None:
+                self.removed.append(actor_id)
 
 
 class BaseSeedingStrategy(ABC):

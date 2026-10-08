@@ -19,16 +19,18 @@ class GridSpec:
     sources: dict[str, str]  # source name -> glob over config names
     strategies: dict[str, dict[str, str]]  # class -> {prefix, results_root}
     modes: list[str]
-    mi_values: list[float]
+    mi_values: dict[str, list[float]]  # per protocol
     seed_budgets: dict[str, list[float]]  # per protocol
     exclude_modes: dict[str, list[str]]  # per source
+    selectors: list[str] | None  # selectors to run; None: all of the base configs
 
 
 def load_spec(path: Path) -> GridSpec:
     """Load and validate a grid spec file."""
     with path.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
-    unknown = set(raw) - {"sources", "strategies", "modes", "mi_values", "seed_budgets", "exclude"}
+    known = {"sources", "strategies", "modes", "mi_values", "seed_budgets", "exclude", "selectors"}
+    unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
     exclude = {src: list(rule.get("modes", [])) for src, rule in (raw.get("exclude") or {}).items()}
@@ -36,9 +38,10 @@ def load_spec(path: Path) -> GridSpec:
         sources={str(k): str(v) for k, v in raw["sources"].items()},
         strategies={cls: dict(v) for cls, v in raw["strategies"].items()},
         modes=list(raw["modes"]),
-        mi_values=[float(v) for v in raw["mi_values"]],
+        mi_values=_per_protocol(raw["mi_values"]),
         seed_budgets={p: [float(b) for b in v] for p, v in raw["seed_budgets"].items()},
         exclude_modes=exclude,
+        selectors=raw.get("selectors"),
     )
     known_classes = {cls for cls, _ in STRATEGY_WEIGHT}
     if set(spec.strategies) - known_classes:
@@ -50,6 +53,13 @@ def load_spec(path: Path) -> GridSpec:
     for pattern in spec.sources.values():
         config_names(pattern)  # raises if nothing matches
     return spec
+
+
+def _per_protocol(values: Any) -> dict[str, list[float]]:
+    """Read a list shared by both protocols, or a mapping protocol -> list."""
+    if isinstance(values, dict):
+        return {proto: [float(v) for v in vs] for proto, vs in values.items()}
+    return {proto: [float(v) for v in values] for proto in ("OR", "AND")}
 
 
 def config_names(pattern: str) -> list[str]:
@@ -84,6 +94,8 @@ def expand(spec: GridSpec, device: str | None = None) -> list[Job]:
                 mode = base["params"]["mode"]
                 if mode not in spec.modes or mode in spec.exclude_modes.get(source, []):
                     continue
+                if spec.selectors is not None and base["params"]["selector"] not in spec.selectors:
+                    continue
                 stem = (
                     config_name.rsplit("/", 1)[-1]
                     if len(schedules) == 1
@@ -106,7 +118,7 @@ def expand(spec: GridSpec, device: str | None = None) -> list[Job]:
                                 "params": params,
                             },
                             network=cfg["networks"][0],
-                            mi_values=spec.mi_values,
+                            mi_values=spec.mi_values[protocol],
                             seed_budgets=spec.seed_budgets[protocol],
                             repetitions=cfg["spreading"]["repetitions"],
                             logs_dir=ROOT / root / "_launcher_logs",

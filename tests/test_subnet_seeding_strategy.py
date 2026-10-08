@@ -143,6 +143,7 @@ class TestRankingRecomputed:
     def test_actorwise_called_each_seeding_epoch(self, net, actors) -> None:
         """Unlike StaticSeedingStrategy, the ranking must be recomputed every call."""
         strategy = SubnetSeedingStrategy(selector="deg-c", mode="SQ", batch_size=1)
+        strategy.first_pick = False  # test the full re-ranking path
         with patch.object(strategy._selector, "actorwise", wraps=strategy._selector.actorwise) as mock_aw:
             for epoch in range(4):
                 strategy.next_batch(net, list(actors), epoch=epoch, stagnant=False)
@@ -151,6 +152,7 @@ class TestRankingRecomputed:
     def test_actorwise_not_called_when_no_seeding_sqr(self, net, actors) -> None:
         """SQ_R must skip re-ranking on non-stagnant epochs after epoch 0."""
         strategy = SubnetSeedingStrategy(selector="deg-c", mode="SQ_R", batch_size=1)
+        strategy.first_pick = False  # test the full re-ranking path
         with patch.object(strategy._selector, "actorwise", wraps=strategy._selector.actorwise) as mock_aw:
             strategy.next_batch(net, list(actors), epoch=0, stagnant=False)  # seeds
             strategy.next_batch(net, list(actors), epoch=1, stagnant=False)  # skips
@@ -186,3 +188,29 @@ class TestAllSelectors:
         batch = strategy.next_batch(net, remaining, epoch=0, stagnant=False)
         remaining_ids = {a.actor_id for a in remaining}
         assert all(a.actor_id in remaining_ids for a in batch)
+
+
+@pytest.mark.parametrize("selector_key", ["deg-c", "deg-c-d", "nghb-s", "nghb-sd", "voterank"])
+@pytest.mark.parametrize("net_name", ["toy", "lazega"])
+def test_first_pick_equals_full_reranking(selector_key: str, net_name: str) -> None:
+    """The incremental first pick equals the top of a full subnet re-ranking at every step."""
+    import random
+
+    from network_diffusion.nets.toy_network_piotr import get_toy_network_piotr
+
+    from sqs.loaders.net_loader import load_network
+    from sqs.runners.strategies.base import ActorPool
+
+    network = get_toy_network_piotr() if net_name == "toy" else load_network(net_name)
+    params = {"device": "cpu"} if selector_key == "voterank" else None
+    random.seed(0)
+    for _ in range(3):
+        fast = SubnetSeedingStrategy(selector_key, "SQ", 1, params)
+        full = SubnetSeedingStrategy(selector_key, "SQ", 1, params)
+        full.first_pick = False
+        pool = ActorPool(network.get_actors())
+        while len(pool):
+            expected = full._candidates(network, list(pool))[:1]
+            assert fast._candidates(network, pool) == expected
+            gone = random.sample(list(pool.ids), random.randint(1, min(5, len(pool))))
+            pool.discard(gone)

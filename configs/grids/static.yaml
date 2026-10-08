@@ -9,7 +9,7 @@ sources:
 strategies:
   StaticSeedingStrategy:
     prefix: static
-    results_root: data/static_results
+    results_root: data/_static_results
 
 modes:
   - SS
