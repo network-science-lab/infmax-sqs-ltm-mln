@@ -40,8 +40,3 @@ seed_budgets:
     - 0.25
     - 0.3
     - 0.35
-
-exclude:
-  timik:
-    modes:
-      - SQ_R

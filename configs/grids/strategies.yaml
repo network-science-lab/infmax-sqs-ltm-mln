@@ -7,7 +7,6 @@ sources:
   timik: timik/*
   aucs: full_experiment_*_aucs
 
-# Adaptive: base version (the push-score version is parked in git stash, "adaptive push score")
 strategies:
   SubnetSeedingStrategy:
     prefix: subnet
@@ -23,7 +22,7 @@ strategies:
 #   per neighbour, so it picks (almost always) the same actor as nghb-sd: duplicate results. Note
 #   that deg-c-d and nghb-sd themselves reduce to plain degree / neighbourhood size in Subnet
 #   (discounting only affects later picks).
-# In Adaptive the selector only picks the first seed (fallback without a frontier).
+# In Adaptive the selector gives the Subnet order (no push, ties).
 selectors:
   - deg-c-d
   - nghb-sd
@@ -55,8 +54,3 @@ seed_budgets:
     - 0.25
     - 0.3
     - 0.35
-
-exclude:
-  timik:
-    modes:
-      - SQ_R
