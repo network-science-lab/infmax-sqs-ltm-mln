@@ -5,14 +5,55 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from sqs.grid import jobs as grid_jobs
+from sqs.grid import spec as grid_spec
 from sqs.grid.jobs import Job, merge_slices
 from sqs.grid.spec import expand, load_spec, select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))  # verify_grid_results
 
-STATIC_SPEC = Path(__file__).resolve().parents[1] / "configs" / "grids" / "static.yaml"
+SCHEDULES = [(sel, mode) for sel in ["deg-c-d", "nghb-sd"] for mode in ["SS", "SQ", "SQ_R"]]
+
+
+def _schedule(selector: str, mode: str) -> dict:
+    name = f"{mode.lower()}_{selector.replace('-', '_')}"
+    return {"name": name, "class": "StaticSeedingStrategy", "params": {"selector": selector, "mode": mode}}
+
+
+def _dump(path: Path, data: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def configs(tmp_path: Path, monkeypatch) -> Path:
+    """Base configs: ``full/<proto>_er2_<schedule>`` (one schedule each), ``multi_<proto>`` (all)."""
+    root = tmp_path / "configs"
+    for proto in ("OR", "AND"):
+        base = {"networks": ["er2"], "spreading": {"protocols": [proto], "repetitions": 3}}
+        for selector, mode in SCHEDULES:
+            schedule = _schedule(selector, mode)
+            name = f"{proto.lower()}_er2_{schedule['name']}"
+            _dump(root / "full" / f"{name}.yaml", {**base, "seeding_schedules": [schedule]})
+        multi = [_schedule(*s) for s in SCHEDULES]
+        _dump(root / f"multi_{proto.lower()}.yaml", {**base, "seeding_schedules": multi})
+    monkeypatch.setattr(grid_spec, "CONFIGS_DIR", root)
+    return root
+
+
+def _spec(tmp_path: Path, **overrides) -> Path:
+    """Static spec over the ``configs`` fixture."""
+    raw = {
+        "sources": {"full": "full/*", "multi": "multi_*"},
+        "strategies": {"StaticSeedingStrategy": {"prefix": "static", "results_root": "res"}},
+        "modes": ["SS", "SQ", "SQ_R"],
+        "mi_values": [0.1, 0.2],
+        "seed_budgets": {"OR": [0.05, 0.1], "AND": [0.2, 0.3, 0.4]},
+    }
+    return _dump(tmp_path / "spec.yaml", {**raw, **overrides})
 
 
 def _job(out_dir: str, **kwargs) -> Job:
@@ -38,30 +79,40 @@ def _write(root: Path, out_dir: str, header: list[str], rows: list[list[str]]) -
         csv.writer(fh).writerows([header, *rows])
 
 
-def test_static_spec_expansion() -> None:
-    spec = load_spec(STATIC_SPEC)
-    jobs = expand(spec)
-    by_source = {s: [j for j in jobs if j.name.split("/")[1] == s] for s in ["full", "aucs", "arxiv", "timik"]}
-    timik_modes = 3 - len(spec.exclude_modes.get("timik", []))  # SQ_R may be excluded
-    assert {s: len(js) for s, js in by_source.items()} == {
-        "full": 270,
-        "aucs": 30,
-        "arxiv": 30,
-        "timik": 10 * timik_modes,
-    }
-    aucs = next(j for j in by_source["aucs"] if j.name == "static/aucs/and_sq_r_deg_c_d")
-    assert aucs.config_name == "full_experiment_and_aucs"
-    assert aucs.out_dir == "data/_static_results/aucs/and_sq_r_deg_c_d"
-    assert aucs.seed_budgets == [0.15, 0.2, 0.25, 0.3, 0.35]
-    assert aucs.expected_rows == 9 * 5 * 30
-    assert "spreading.mi_values=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]" in aucs.overrides
+def test_spec_expansion(configs: Path, tmp_path: Path) -> None:
+    jobs = expand(load_spec(_spec(tmp_path)))
+    by_source = {s: [j for j in jobs if j.name.split("/")[1] == s] for s in ["full", "multi"]}
+    assert {s: len(js) for s, js in by_source.items()} == {"full": 12, "multi": 12}
+    multi = next(j for j in by_source["multi"] if j.name == "static/multi/and_sq_r_deg_c_d")
+    assert multi.config_name == "multi_and"
+    assert multi.out_dir == "res/multi/and_sq_r_deg_c_d"
+    assert multi.schedule["name"] == "sq_r_deg_c_d"
+    assert multi.seed_budgets == [0.2, 0.3, 0.4]
+    assert multi.expected_rows == 2 * 3 * 3
+    assert "spreading.mi_values=[0.1,0.2]" in multi.overrides
 
 
-def test_exclude_modes(tmp_path: Path) -> None:
-    spec = tmp_path / "static.yaml"
-    spec.write_text(STATIC_SPEC.read_text() + "\nexclude:\n  timik:\n    modes:\n      - SQ_R\n")
-    timik = [j for j in expand(load_spec(spec)) if j.name.startswith("static/timik/")]
-    assert len(timik) == 20 and all(j.schedule["params"]["mode"] != "SQ_R" for j in timik)
+def test_exclude_modes(configs: Path, tmp_path: Path) -> None:
+    jobs = expand(load_spec(_spec(tmp_path, exclude={"multi": {"modes": ["SQ_R"]}})))
+    multi = [j for j in jobs if j.name.startswith("static/multi/")]
+    assert len(multi) == 8 and all(j.schedule["params"]["mode"] != "SQ_R" for j in multi)
+    assert len(jobs) - len(multi) == 12
+
+
+def test_selectors_and_mi_per_protocol(configs: Path, tmp_path: Path) -> None:
+    """Only the listed selectors are expanded; other strategies get prefixed names."""
+    spec = _spec(
+        tmp_path,
+        strategies={"AdaptiveSeedingStrategy": {"prefix": "adaptive", "results_root": "ad"}},
+        modes=["SQ", "SQ_R"],
+        selectors=["nghb-sd"],
+        mi_values={"OR": [0.7], "AND": [0.5, 0.6]},
+    )
+    jobs = expand(load_spec(spec))
+    assert {j.schedule["params"]["selector"] for j in jobs} == {"nghb-sd"}
+    or_job = next(j for j in jobs if j.name == "adaptive/full/or_er2_sq_nghb_sd")
+    assert or_job.schedule["name"] == "adaptive_sq_nghb_sd"
+    assert or_job.mi_values == [0.7] and or_job.seed_budgets == [0.05, 0.1]
 
 
 @pytest.mark.parametrize(("by_budget", "n"), [(False, 2), (True, 4)])
@@ -75,13 +126,13 @@ def test_split(by_budget: bool, n: int) -> None:
     assert len({s.out_dir for s in slices}) == n
 
 
-def test_select_does_not_split_jobs_with_results(tmp_path: Path, monkeypatch) -> None:
+def test_select_does_not_split_jobs_with_results(configs: Path, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(grid_jobs, "ROOT", tmp_path)
-    started = "data/_static_results/full/or_er2_sq_deg_c_d"
+    started = "res/full/or_er2_sq_deg_c_d"
     _write(tmp_path, started, ["a"], [["1"]])
-    jobs = select(STATIC_SPEC, ["static/full/or_er2_sq_*"], split="mi")
+    jobs = select(_spec(tmp_path), ["static/full/or_er2_sq_*"], split="mi")
     assert [j.out_dir for j in jobs if j.base_out_dir is None] == [started]
-    assert len(jobs) == 1 + 9 * 9  # started job + 9 other SQ / SQ_R jobs split per mi
+    assert len(jobs) == 1 + 3 * 2  # started job + 3 other SQ / SQ_R jobs split per mi
 
 
 def test_merge_slices(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -135,11 +186,3 @@ def test_mode_violations(tmp_path: Path, monkeypatch) -> None:
         jobs.append(job)
     bad = mode_violations(jobs)
     assert len(bad) == 1 and bad.iloc[0]["SQ_R"] == 40
-
-
-def test_strategies_spec_selectors() -> None:
-    """Only the listed selectors are expanded, with per-protocol mi values."""
-    jobs = expand(load_spec(STATIC_SPEC.parent / "strategies.yaml"))
-    assert {j.schedule["params"]["selector"] for j in jobs} == {"deg-c-d", "nghb-sd", "ts-net"}
-    or_job = next(j for j in jobs if j.name == "subnet/full/or_er2_sq_deg_c_d")
-    assert or_job.mi_values == [0.7, 0.8, 0.9] and or_job.seed_budgets == [0.1, 0.15, 0.2, 0.25]

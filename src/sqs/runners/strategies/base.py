@@ -2,6 +2,8 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
+from itertools import islice
+from math import ceil
 from typing import Any
 
 from network_diffusion.mln.actor import MLNetworkActor
@@ -91,6 +93,30 @@ class BaseSeedingStrategy(ABC):
         self._batch_size = batch_size
         self._subnet_cache: MultilayerNetwork | None = None
         self._subnet_actor_ids: frozenset[str] = frozenset()
+        self.budget: int | None = None  # seeds of the run, set by the simulator
+        self._seeded = 0
+        self._ranked_at: int | None = None  # seeds planted at the last ranking
+        self._ranking: list[MLNetworkActor] | None = None
+        self._cursor = 0  # ranking position of the first actor still eligible
+
+    def _set_ranking(self, ranking: list[MLNetworkActor]) -> None:
+        """Rank by ``ranking`` from now on."""
+        self._ranking, self._cursor, self._ranked_at = ranking, 0, self._seeded
+
+    def _ranked(self, pool: ActorPool, n: int, *skip: Any) -> list[MLNetworkActor]:
+        """First ``n`` actors of the ranking still in ``pool`` and in none of ``skip``."""
+        ranking = self._ranking or []
+        while self._cursor < len(ranking) and ranking[self._cursor].actor_id not in pool.ids:
+            self._cursor += 1  # actors only leave the pool
+        ids = (a.actor_id for a in islice(ranking, self._cursor, None))
+        eligible = (i for i in ids if i in pool.ids and not any(i in s for s in skip))
+        return [pool[i] for i in islice(eligible, n)]
+
+    def _rerank_due(self, percent: float) -> bool:
+        """Whether ``percent`` % of the budget was seeded since the last ranking."""
+        if self._ranked_at is None:
+            return True
+        return self._seeded - self._ranked_at >= ceil(percent / 100 * (self.budget or 0))
 
     def _build_subnet(
         self, net: MultilayerNetwork, remaining: list[MLNetworkActor]
@@ -185,14 +211,12 @@ class BaseSeedingStrategy(ABC):
         :returns: actors to seed now; empty list means no seeding this epoch.
         """
         if self._mode == "SS":
-            return self._candidates(net, remaining) if epoch == 0 else []
-
-        if self._mode == "SQ":
-            return self._candidates(net, remaining)[: self._batch_size]
-
-        if self._mode == "SQ_R":
-            if epoch > 0 and not stagnant:
-                return []
-            return self._candidates(net, remaining)[: self._batch_size]
-
-        raise ValueError(f"Unknown mode: {self._mode!r}")
+            batch = self._candidates(net, remaining) if epoch == 0 else []
+        elif self._mode == "SQ" or (self._mode == "SQ_R" and (epoch == 0 or stagnant)):
+            batch = self._candidates(net, remaining)[: self._batch_size]
+        elif self._mode == "SQ_R":
+            batch = []
+        else:
+            raise ValueError(f"Unknown mode: {self._mode!r}")
+        self._seeded += len(batch)
+        return batch

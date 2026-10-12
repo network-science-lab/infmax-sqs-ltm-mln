@@ -64,24 +64,28 @@ def test_same_results_as_classic_loop(net_name: str, protocol: str) -> None:
         for budget in [0.05, 0.15, 0.3]:
             n_seeds = max(1, round(budget * total))
             for mode in ["SS", "SQ", "SQ_R"]:
-                runs = []
-                for classic in (True, False):
-                    random.seed(0)
-                    strategy = StaticSeedingStrategy("deg-c", mode)
-                    strategy.set_precomputed_ranking(ranking)
-                    model = SQSMLTModel(protocol, mi)
-                    if classic:
-                        runs.append(classic_run(net.copy(), model, strategy, n_seeds, patience=2))
-                    else:
-                        log = SequentialSimulator(model, net.copy()).perform_propagation(
-                            n_seeds, strategy, max_epochs=None, patience=2, track_full_logs=False
-                        )
-                        runs.append((log.seeding_events, log.active_counts))
+                # fresh strategy and model per run: both keep state between epochs
+                random.seed(0)
+                classic_result = classic_run(
+                    net.copy(), SQSMLTModel(protocol, mi), _strategy(mode, ranking), n_seeds, patience=2
+                )
+                random.seed(0)
+                log = SequentialSimulator(SQSMLTModel(protocol, mi), net.copy()).perform_propagation(
+                    n_seeds, _strategy(mode, ranking), max_epochs=None, patience=2, track_full_logs=False
+                )
+                sqs_result = (log.seeding_events, log.active_counts)
                 case = (mi, budget, mode)
-                assert runs[0] == runs[1], case
-                assert extract_simulation_result(_log(*runs[0]), total, n_seeds) == (
-                    extract_simulation_result(_log(*runs[1]), total, n_seeds)
+                assert classic_result == sqs_result, case
+                assert extract_simulation_result(_log(*classic_result), total, n_seeds) == (
+                    extract_simulation_result(_log(*sqs_result), total, n_seeds)
                 ), case
+
+
+def _strategy(mode: str, ranking: list) -> StaticSeedingStrategy:
+    """Static deg-c strategy with the shared ranking."""
+    strategy = StaticSeedingStrategy("deg-c", mode)
+    strategy.set_precomputed_ranking(ranking)
+    return strategy
 
 
 def _log(seeding_events: dict, active_counts: dict):

@@ -119,6 +119,7 @@ class SequentialSimulator(Simulator):
         active_counts: dict[int, int] = {}
         self._model.update_network(net, self._model.determine_initial_states(net))
         remaining = ActorPool(net.get_actors())
+        strategy.budget = n_seeds
         actors = {a.actor_id: a for a in remaining}
         self._active_neighbours: dict[tuple[str, Any], int] = {}  # (layer, actor id) -> count
         seeds_planted = active = 0

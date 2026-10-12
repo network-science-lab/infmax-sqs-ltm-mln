@@ -15,18 +15,14 @@ strategies:
     prefix: adaptive
     results_root: data/_adaptive_results
 
-# Selectors (of the Static ones) run here. Excluded:
-# - mds+deg: Subnet recomputes the minimum dominating set at every seed (0.3 s per actor timeout,
-#   e.g. ~4 h per rep on er2, ~24 h on arxiv), impractical.
-# - voterank: Subnet uses only the first candidate of each re-ranking; first-round votes are one
-#   per neighbour, so it picks (almost always) the same actor as nghb-sd: duplicate results. Note
-#   that deg-c-d and nghb-sd themselves reduce to plain degree / neighbourhood size in Subnet
-#   (discounting only affects later picks).
-# In Adaptive the selector gives the Subnet order (no push, ties).
+# Selectors (of the Static ones) run here. mds+deg excluded: Subnet recomputes the minimum
+# dominating set at every seed (0.3 s per actor timeout, ~4 h per rep on er2), impractical.
+# voterank and ts-net rank on the GPU.
 selectors:
   - deg-c-d
   - nghb-sd
   - ts-net
+  - voterank
 
 # SS skipped (for Subnet equivalent to Static SS)
 modes:
