@@ -70,6 +70,7 @@ def monitor_resources(device: str = "cpu") -> Generator[ResourceUsage, None, Non
 
         cuda = torch.cuda.is_available()
         if cuda:
+            torch.cuda.init()  # the allocator is set up lazily; peak stats need it first
             torch.cuda.reset_peak_memory_stats(device)
 
     usage = ResourceUsage(device, 0.0, 0.0, 0.0, 0.0, None)
