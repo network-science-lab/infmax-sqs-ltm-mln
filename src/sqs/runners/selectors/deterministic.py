@@ -19,6 +19,7 @@ from network_diffusion.mln.mlnetwork import MultilayerNetwork
 from network_diffusion.seeding import VoteRankMLNSeedSelector
 
 Scores = Callable[[MultilayerNetwork], dict[MLNetworkActor, int]]
+Scored = list[tuple[MLNetworkActor, Any]]  # ranking with the score each actor got
 
 
 def _neighbours(net: MultilayerNetwork, actor: MLNetworkActor) -> set[Any]:
@@ -34,9 +35,13 @@ class CentralitySelector:
         self._scores = scores
 
     def actorwise(self, net: MultilayerNetwork) -> list[MLNetworkActor]:
-        """Return all actors ordered by (score desc, actor id)."""
+        """Return the actors in ranking order."""
+        return [a for a, _ in self.scored(net)]
+
+    def scored(self, net: MultilayerNetwork) -> Scored:
+        """Return (actor, centrality) ordered by (centrality desc, actor id)."""
         scores = self._scores(net)
-        return sorted(scores, key=lambda a: (-scores[a], a.actor_id))
+        return [(a, scores[a]) for a in sorted(scores, key=lambda a: (-scores[a], a.actor_id))]
 
 
 class DiscountSelector(CentralitySelector):
@@ -47,19 +52,18 @@ class DiscountSelector(CentralitySelector):
     positive score loses one point.
     """
 
-    def actorwise(self, net: MultilayerNetwork) -> list[MLNetworkActor]:
-        """Return all actors in discount order."""
+    def scored(self, net: MultilayerNetwork) -> Scored:
+        """Return (actor, discounted score when picked) in discount order."""
         scores = {a.actor_id: s for a, s in self._scores(net).items()}
         actors = {a.actor_id: a for a in net.get_actors()}
         heap = [(-s, aid) for aid, s in scores.items()]
         heapq.heapify(heap)
-        ranking: list[MLNetworkActor] = []
+        ranking: Scored = []
         while heap:
             neg, aid = heapq.heappop(heap)
             if aid not in scores or -neg != scores[aid]:
                 continue  # stale entry
-            del scores[aid]
-            ranking.append(actors[aid])
+            ranking.append((actors[aid], scores.pop(aid)))
             for nb in _neighbours(net, actors[aid]):
                 if scores.get(nb):
                     scores[nb] -= 1
@@ -77,18 +81,22 @@ class VoteRankSelector(VoteRankMLNSeedSelector):
     """
 
     def actorwise(self, net: MultilayerNetwork) -> list[MLNetworkActor]:
-        """Return elected actors in voting order, then the rest by actor id."""
+        """Return the actors in ranking order."""
+        return [a for a, _ in self.scored(net)]
+
+    def scored(self, net: MultilayerNetwork) -> Scored:
+        """Return (actor, votes when elected) in voting order, then the rest (0 votes) by id."""
         actors = sorted(net.get_actors(), key=lambda a: a.actor_id)
         n = len(actors)
         total_neighbours = sum(neighbourhood_size(net=net).values())
         if total_neighbours == 0:  # no links (e.g. a Subnet of isolated actors): nobody gets votes
-            return actors
+            return [(a, 0.0) for a in actors]
         src, dst = _edges(net, {a.actor_id: i for i, a in enumerate(actors)}, self.device)
         inv_avg_nbs = torch.tensor(n / total_neighbours, dtype=torch.float32, device=src.device)
         scores = torch.zeros(n, dtype=torch.float32, device=src.device)
         ability = torch.ones(n, dtype=torch.float32, device=src.device)
         elected = torch.zeros(n, dtype=torch.bool, device=src.device)
-        ranking: list[MLNetworkActor] = []
+        ranking: Scored = []
         for _ in range(n):
             scores.zero_()
             scores.scatter_add_(0, dst, ability[src])
@@ -96,12 +104,12 @@ class VoteRankSelector(VoteRankMLNSeedSelector):
             top = int(scores.argmax().item())
             if scores[top].item() == 0.0:
                 break
-            ranking.append(actors[top])
+            ranking.append((actors[top], scores[top].item()))
             elected[top] = True
             ability[top] = 0.0
             ability[dst[src == top]] -= inv_avg_nbs
             ability.clamp_(min=0.0)
-        return ranking + [a for i, a in enumerate(actors) if not elected[i]]
+        return ranking + [(a, 0.0) for i, a in enumerate(actors) if not elected[i]]
 
 
 def _edges(
@@ -126,14 +134,23 @@ class MdsSelector:
         self._base = base
 
     def actorwise(self, net: MultilayerNetwork) -> list[MLNetworkActor]:
-        """Return driver actors followed by the remaining actors."""
+        """Return the actors in ranking order."""
+        return [a for a, _ in self.scored(net)]
+
+    def scored(self, net: MultilayerNetwork) -> Scored:
+        """Return (actor, {driver, degree}) with drivers first; ``degree`` only with a base."""
         drivers = {a.actor_id for a in get_mds_locimpr(net)}
         if self._base is None:
-            order = sorted(net.get_actors(), key=lambda a: a.actor_id)
+            order = [(a, None) for a in sorted(net.get_actors(), key=lambda a: a.actor_id)]
         else:
-            order = self._base.actorwise(net)
-        return [a for a in order if a.actor_id in drivers] + [
-            a for a in order if a.actor_id not in drivers
+            order = self._base.scored(net)
+
+        def score(actor: MLNetworkActor, base: Any) -> dict[str, Any]:
+            driver = int(actor.actor_id in drivers)
+            return {"driver": driver} if base is None else {"driver": driver, "degree": base}
+
+        return [(a, score(a, b)) for a, b in order if a.actor_id in drivers] + [
+            (a, score(a, b)) for a, b in order if a.actor_id not in drivers
         ]
 
 
