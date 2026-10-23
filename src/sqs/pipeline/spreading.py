@@ -64,6 +64,9 @@ _RESULTS_FILE = "results.csv"
 _RANKINGS_VERSION = 1
 _RANKINGS_DIR = Path(__file__).resolve().parents[3] / "data" / "rankings" / f"v{_RANKINGS_VERSION}"
 _LOADED_RANKINGS: dict[Path, list[Any]] = {}
+# Scored rankings: rep 0 is the ranking, reps 1..n-1 its replicas with random tie-breaks
+# (scripts/replicate_rankings.py); mds has one ranking per rep
+_REPLICAS_DIR = _RANKINGS_DIR.parent / "v2"
 _DETAILED_LOGS_DIR = "detailed_logs"
 
 # Unique key of a result row, used for resuming
@@ -129,6 +132,20 @@ def ranking_path(net_name: str, ss_params: dict[str, Any], rep: int | None = Non
     if rep is not None:
         tag += f"__rep{rep}"
     return _RANKINGS_DIR / net_name / f"{tag}.json"
+
+
+def replica_ranking(net: Any, net_name: str, ss_params: dict[str, Any], rep: int) -> list[Any]:
+    """Load the v2 ranking of (network, selector) for ``rep``: the original or a replica."""
+    tag = ranking_path(net_name, ss_params).stem
+    path = _REPLICAS_DIR / net_name / f"{tag}__rep{rep}.json"
+    if rep == 0 and not path.exists():
+        path = path.with_name(f"{tag}.json")  # deterministic selector: rep 0 is the original
+    if not path.exists():
+        raise FileNotFoundError(f"{path} missing: run scripts/replicate_rankings.py")
+    if path not in _LOADED_RANKINGS:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+        _LOADED_RANKINGS[path] = [net.get_actor(e["actor"]) for e in entries]
+    return _LOADED_RANKINGS[path]
 
 
 def shared_ranking(
@@ -295,9 +312,11 @@ def run(config: dict[str, Any]) -> None:
 
             # Static rankings come from the shared cache: one per (network, selector) for
             # deterministic selectors, one per rep for randomised ones (mds).
+            # With ranking_replicas, rep r uses replica r instead (ties broken at random).
             static = schedule_cfg["class"] == "StaticSeedingStrategy"
+            replicas = static and sp.get("ranking_replicas", False)
             precomputed_ranking = None
-            if static and ss_selector in DETERMINISTIC_SELECTORS:
+            if static and not replicas and ss_selector in DETERMINISTIC_SELECTORS:
                 precomputed_ranking = shared_ranking(net, net_name, ss_params)
 
             inner_pbar = tqdm(pending_reps, leave=False, file=open(os.devnull, "w"))
@@ -312,7 +331,9 @@ def run(config: dict[str, Any]) -> None:
                 # Fresh strategy, model and network copy per repetition so that state from previous
                 # runs does not leak into the next one.
                 strategy = _resolve_strategy(schedule_cfg)
-                if static and ss_selector in PER_REP_SELECTORS:
+                if replicas:
+                    precomputed_ranking = replica_ranking(net, net_name, ss_params, rep)
+                elif static and ss_selector in PER_REP_SELECTORS:
                     precomputed_ranking = shared_ranking(net, net_name, ss_params, rep)
                 if precomputed_ranking is not None and isinstance(strategy, StaticSeedingStrategy):
                     strategy.set_precomputed_ranking(precomputed_ranking)

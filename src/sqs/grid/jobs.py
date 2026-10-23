@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,7 @@ class Job:
     repetitions: int
     logs_dir: Path
     base_out_dir: str | None = None  # slices only: where merged results end up
+    extra_overrides: list[str] = field(default_factory=list)  # from the spec
 
     @property
     def overrides(self) -> list[str]:
@@ -65,6 +66,7 @@ class Job:
             f"spreading.mi_values={to_override_value(self.mi_values)}",
             f"spreading.seed_budgets={to_override_value(self.seed_budgets)}",
             f"run.out_dir={self.out_dir}",
+            *self.extra_overrides,
         ]
 
     @property

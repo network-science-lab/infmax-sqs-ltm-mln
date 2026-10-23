@@ -92,6 +92,12 @@ def test_spec_expansion(configs: Path, tmp_path: Path) -> None:
     assert "spreading.mi_values=[0.1,0.2]" in multi.overrides
 
 
+def test_spec_overrides_reach_every_job(configs: Path, tmp_path: Path) -> None:
+    jobs = expand(load_spec(_spec(tmp_path, overrides=["+spreading.ranking_replicas=true"])))
+    assert all(j.overrides[-1] == "+spreading.ranking_replicas=true" for j in jobs)
+    assert all(s.overrides[-1] == "+spreading.ranking_replicas=true" for s in jobs[0].split(True))
+
+
 def test_exclude_modes(configs: Path, tmp_path: Path) -> None:
     jobs = expand(load_spec(_spec(tmp_path, exclude={"multi": {"modes": ["SQ_R"]}})))
     multi = [j for j in jobs if j.name.startswith("static/multi/")]

@@ -1,0 +1,6 @@
+outs:
+- md5: 128da0e806bc5da29381827ec559f3ee.dir
+  size: 16912621
+  nfiles: 1
+  hash: md5
+  path: sf3

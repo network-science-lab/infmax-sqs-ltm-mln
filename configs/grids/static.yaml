@@ -11,6 +11,10 @@ strategies:
     prefix: static
     results_root: data/_static_results
 
+# rep r ranks by v2 ranking r
+overrides:
+  - "+spreading.ranking_replicas=true"
+
 modes:
   - SS
   - SQ

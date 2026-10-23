@@ -1,0 +1,6 @@
+outs:
+- md5: 16cda1770c44eb2411d9fb3aef2fa045.dir
+  size: 4636701
+  nfiles: 1
+  hash: md5
+  path: ckm_physicians

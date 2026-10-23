@@ -175,3 +175,34 @@ def test_rankings_cached_per_rep_for_mds(spreading_config: dict, tmp_path: Path,
     files = sorted(p.name for p in (tmp_path / "rankings" / "toy_network_piotr").iterdir())
     assert files == ["deg-c.json", "mds__rep0.json", "mds__rep1.json"]
     assert len(_read_rows(tmp_path / "results.csv")) == 4 * 2
+
+
+def test_static_uses_ranking_replica_per_rep(spreading_config: dict, tmp_path: Path, monkeypatch) -> None:
+    """With ``ranking_replicas`` rep 0 seeds from the v2 ranking, rep r from replica r."""
+    import json
+
+    rankings = tmp_path / "v2" / "toy_network_piotr"
+    rankings.mkdir(parents=True)
+    monkeypatch.setattr(spreading, "_REPLICAS_DIR", tmp_path / "v2")
+    actors = list(range(1, 12))
+    for name, order in [("deg-c-d.json", actors), ("deg-c-d__rep1.json", actors[::-1])]:
+        (rankings / name).write_text(json.dumps([{"actor": a, "score": 0} for a in order]), encoding="utf-8")
+    spreading_config["spreading"]["ranking_replicas"] = True
+    spreading_config["seeding_schedules"] = [
+        {"name": f"{mode}_deg_c_d", "class": "StaticSeedingStrategy", "params": {"selector": "deg-c-d", "mode": mode}}
+        for mode in ["SS", "SQ"]
+    ]
+    spreading.run(spreading_config)
+
+    first = {(r["ss_mode"], r["rep"]): r["seedings"].split(";")[0] for r in _read_rows(tmp_path / "results.csv")}
+    assert first == {("SS", "0"): "[1]", ("SQ", "0"): "[1]", ("SS", "1"): "[11]", ("SQ", "1"): "[11]"}
+
+
+def test_missing_replica_raises(spreading_config: dict, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(spreading, "_REPLICAS_DIR", tmp_path / "none")
+    spreading_config["spreading"]["ranking_replicas"] = True
+    spreading_config["seeding_schedules"] = [
+        {"name": "ss_deg_c_d", "class": "StaticSeedingStrategy", "params": {"selector": "deg-c-d", "mode": "SS"}}
+    ]
+    with pytest.raises(FileNotFoundError, match="replicate_rankings"):
+        spreading.run(spreading_config)

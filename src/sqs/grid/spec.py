@@ -23,13 +23,23 @@ class GridSpec:
     seed_budgets: dict[str, list[float]]  # per protocol
     exclude_modes: dict[str, list[str]]  # per source
     selectors: list[str] | None  # selectors to run; None: all of the base configs
+    overrides: list[str]  # extra Hydra overrides of every job
 
 
 def load_spec(path: Path) -> GridSpec:
     """Load and validate a grid spec file."""
     with path.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
-    known = {"sources", "strategies", "modes", "mi_values", "seed_budgets", "exclude", "selectors"}
+    known = {
+        "sources",
+        "strategies",
+        "modes",
+        "mi_values",
+        "seed_budgets",
+        "exclude",
+        "selectors",
+        "overrides",
+    }
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -42,6 +52,7 @@ def load_spec(path: Path) -> GridSpec:
         seed_budgets={p: [float(b) for b in v] for p, v in raw["seed_budgets"].items()},
         exclude_modes=exclude,
         selectors=raw.get("selectors"),
+        overrides=list(raw.get("overrides") or []),
     )
     known_classes = {cls for cls, _ in STRATEGY_WEIGHT}
     if set(spec.strategies) - known_classes:
@@ -122,6 +133,7 @@ def expand(spec: GridSpec, device: str | None = None) -> list[Job]:
                             seed_budgets=spec.seed_budgets[protocol],
                             repetitions=cfg["spreading"]["repetitions"],
                             logs_dir=ROOT / root / "_launcher_logs",
+                            extra_overrides=spec.overrides,
                         )
                     )
     return jobs
