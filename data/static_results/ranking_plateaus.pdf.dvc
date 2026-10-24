@@ -1,0 +1,5 @@
+outs:
+- md5: d85e1210b6abd259b4ae40983e4e50bf
+  size: 347637
+  hash: md5
+  path: ranking_plateaus.pdf
