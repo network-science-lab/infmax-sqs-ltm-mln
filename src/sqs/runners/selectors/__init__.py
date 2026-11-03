@@ -1,34 +1,38 @@
 """Selector registry and network-state helpers for seeding strategies."""
 
 import logging
-from functools import partial
+from collections.abc import Callable
+from typing import Any
 
 from network_diffusion.mln.actor import MLNetworkActor
 from network_diffusion.mln.mlnetwork import MultilayerNetwork
 from network_diffusion.models.mlt_model import MLTModel
-from network_diffusion.seeding import (
-    DegreeCentralityDiscountSelector,
-    DegreeCentralitySelector,
-    DriverActorSelector,
-    NeighbourhoodSizeDiscountSelector,
-    NeighbourhoodSizeSelector,
-    RandomSeedSelector,
-    VoteRankMLNSeedSelector,
+from network_diffusion.seeding import RandomSeedSelector
+
+from sqs.runners.selectors.deterministic import (
+    MdsSelector,
+    VoteRankSelector,
+    degree_centrality,
+    degree_discount,
+    neighbourhood_size_centrality,
+    neighbourhood_size_discount,
 )
 
 _logger = logging.getLogger(__name__)
 
-SELECTOR_CLASSES: dict[str, type] = {
-    "deg-c": DegreeCentralitySelector,
-    "deg-c-d": DegreeCentralityDiscountSelector,
-    "nghb-s": NeighbourhoodSizeSelector,
-    "nghb-sd": NeighbourhoodSizeDiscountSelector,
+# Selector factories (classes or functions); rankings break ties by actor id
+SELECTOR_CLASSES: dict[str, Callable[..., Any]] = {
+    "deg-c": degree_centrality,
+    "deg-c-d": degree_discount,
+    "nghb-s": neighbourhood_size_centrality,
+    "nghb-sd": neighbourhood_size_discount,
     "random": RandomSeedSelector,
-    "voterank": VoteRankMLNSeedSelector,
-    "mds": partial(DriverActorSelector, method=None),  # method required; None = pure MDS
-    # MDS with degree centrality as secondary ranking criterion for tie-breaking.
-    "mds+deg": lambda **kw: DriverActorSelector(method=DegreeCentralitySelector(), **kw),
+    "voterank": VoteRankSelector,
+    "mds": MdsSelector,
+    # MDS with degree centrality as secondary ranking criterion
+    "mds+deg": lambda **kw: MdsSelector(base=degree_centrality(), **kw),
 }
+
 
 try:
     from sqs.runners.selectors.ts_net import TsNetSeedSelector

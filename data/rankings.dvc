@@ -1,0 +1,6 @@
+outs:
+- md5: 80926bcb8dda405792e616e8e82ed071.dir
+  size: 1153236460
+  nfiles: 2208
+  hash: md5
+  path: rankings

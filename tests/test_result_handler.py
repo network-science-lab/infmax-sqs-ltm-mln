@@ -35,21 +35,9 @@ class TestBuildSeedings:
 
 
 class TestBuildExpositions:
-    def test_counts_active_nodes_per_epoch(self) -> None:
-        # epoch 0: LTM epoch -- A active (cumulative count = 1)
-        # epoch 1: seeding epoch -- C seeded (handled via seeding_events, not active_counts)
-        active_counts = {0: 1}
-        expositions = _build_expositions(
-            active_counts, total_epochs=1, seeding_events={1: ["C"]}
-        )
-        parts = expositions.split(";")
-        assert parts[0] == "1"  # epoch 0 (LTM): A newly active
-        assert parts[1] == "1"  # epoch 1 (seeding): C seeded
-
-    def test_empty_epoch_yields_zero(self) -> None:
-        expositions = _build_expositions({}, total_epochs=2, seeding_events={})
-        assert expositions == "0;0;0"
-
+    def test_counts_newly_active_per_epoch(self) -> None:
+        # cumulative active after each epoch: 1 -> 2 -> 2 -> 5
+        assert _build_expositions([1, 2, 2, 5]) == "1;1;0;3"
 
 class TestComputeAuc:
     def test_single_point_returns_zero(self) -> None:
@@ -140,7 +128,9 @@ class TestExtractSimulationResult:
             ss_mode="",
             rep=7,
             wall_seconds=1.23,
-            rss_delta_mb=42.0,
+            cpu_seconds=1.2,
+            peak_rss_mb=420.0,
+            peak_rss_delta_mb=42.0,
             peak_gpu_mb=None,
         )
         assert full.gain == partial.gain
@@ -154,7 +144,9 @@ class TestExtractSimulationResult:
         assert full.ss_mode == ""
         assert full.rep == 7
         assert full.wall_seconds == 1.23
-        assert full.rss_delta_mb == 42.0
+        assert full.cpu_seconds == 1.2
+        assert full.peak_rss_mb == 420.0
+        assert full.peak_rss_delta_mb == 42.0
         assert full.peak_gpu_mb is None
 
 
@@ -184,7 +176,9 @@ class TestAppendResult:
             ss_mode="",
             rep=rep,
             wall_seconds=1.0,
-            rss_delta_mb=1.0,
+            cpu_seconds=1.0,
+            peak_rss_mb=1.0,
+            peak_rss_delta_mb=1.0,
             peak_gpu_mb=None,
         )
 
@@ -202,3 +196,18 @@ class TestAppendResult:
         lines = path.read_text(encoding="utf-8").splitlines()
         assert lines.count(lines[0]) == 1
         assert len(lines) == 3
+
+
+def test_trailing_empty_epochs_are_cut() -> None:
+    """Epochs after the last new activation (patience) do not enter expositions or AUC."""
+    from sqs.runners.simulator import SequentialRunLog
+
+    def log(extra_empty: int) -> SequentialRunLog:
+        counts = {0: 2, 1: 5, 2: 6, **{3 + i: 6 for i in range(extra_empty)}}
+        return SequentialRunLog(logger=None, seeding_events={0: ["a", "b"]}, active_counts=counts)
+
+    short, long = (extract_simulation_result(log(n), total_actors=10, n_seeds=2) for n in (1, 5))
+    assert short == long
+    assert short.simulation_length == 2
+    assert short.expositions == "2;3;1"
+    assert short.seedings == "[a,b];;"

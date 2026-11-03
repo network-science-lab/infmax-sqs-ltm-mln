@@ -77,11 +77,8 @@ class TestSequentialSimulator:
         """With patience=1, simulation stops shortly after the last seed is planted."""
         # mi=1.0 means a node only activates when ALL neighbours are active -- effectively
         # no organic spread in a sparse toy network.
-        # MockSeedingStrategy plants one seed per epoch, so seeds land at epochs 0..n_seeds-1.
-        # After all seeds are planted, two LTM epochs occur before patience triggers:
-        #   first LTM:  new_states=[] != old_states=seed_buffs -> counter stays 0
-        #   second LTM: new_states=[] == old_states=[]         -> counter=1 >= patience -> stop
-        # Total logged = n_seeds + patience + 1
+        # Seeds land at epochs 0..n_seeds-1 (each followed by LTM in the same epoch), then
+        # patience stagnant epochs stop the run: total logged = n_seeds + patience
         model = SQSMLTModel(protocol="OR", mi_value=1.0)
         sim = SequentialSimulator(model, toy_net.copy())
         n_seeds = 2
@@ -92,7 +89,7 @@ class TestSequentialSimulator:
             max_epochs=50,
             patience=patience,
         )
-        assert len(result.logger.get_detailed_logs()) == n_seeds + patience + 1
+        assert len(result.logger.get_detailed_logs()) == n_seeds + patience
 
     def test_invalid_patience_raises(
         self, simulator: SequentialSimulator, mock_strategy: MockSeedingStrategy
@@ -177,3 +174,34 @@ class TestSequentialSimulator:
             extract_simulation_result(run_a, total_actors, n_seeds=3).exposed_nb
             == extract_simulation_result(run_b, total_actors, n_seeds=3).exposed_nb
         )
+
+
+@pytest.mark.parametrize("selector", ["deg-c-d", "voterank"])
+@pytest.mark.parametrize("protocol", ["OR", "AND"])
+def test_sequential_modes_never_below_ss(
+    toy_net: MultilayerNetwork, selector: str, protocol: str
+) -> None:
+    """
+    With a shared ranking, SQ and SQ_R reach at least the gain of SS.
+
+    Each sequential seed is the best-ranked inactive actor, so once the budget is spent all top-k
+    actors are active (seeded or organic); LTM is monotone, so the final state contains SS's.
+    """
+    from sqs.misc.result_handler import extract_simulation_result
+
+    params = {"device": "cpu"} if selector == "voterank" else {}
+    ranking = StaticSeedingStrategy(selector, "SS", selector_params=params).get_or_compute_ranking(
+        toy_net
+    )
+    total = toy_net.get_actors_num()
+    for mi in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+        for n_seeds in range(1, 7):
+            gain = {}
+            for mode in ["SS", "SQ", "SQ_R"]:
+                strategy = StaticSeedingStrategy(selector, mode, selector_params=params)
+                strategy.set_precomputed_ranking(ranking)
+                sim = SequentialSimulator(SQSMLTModel(protocol, mi), toy_net.copy())
+                log = sim.perform_propagation(n_seeds, strategy, max_epochs=None, patience=2)
+                gain[mode] = extract_simulation_result(log, total, n_seeds).gain
+            assert gain["SQ"] >= gain["SS"] - 1e-9, (mi, n_seeds, gain)
+            assert gain["SQ_R"] >= gain["SS"] - 1e-9, (mi, n_seeds, gain)

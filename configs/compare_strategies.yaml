@@ -1,0 +1,32 @@
+# Config for scripts/compare_methods.py: Static vs Subnet vs Adaptive
+# Usage: uv run python scripts/compare_methods.py --config configs/compare_strategies.yaml
+
+# Results merged per network; pairs use the cells both methods have (the strategies band),
+# Static-only pairs use all their cells.
+results_csv:
+  - "./data/static_results/*/results.csv"
+  - "./data/subnet_results/*/results.csv"
+  - "./data/adaptive_results/*/results.csv"
+
+out_dir: "./data/processed/stats_strategies"
+
+metrics:
+  - gain
+  - auc
+  - saved_seeds
+
+group_by:
+  - protocol
+  - network
+
+pair_by:
+  - mi_value
+  - seed_budget
+
+comparisons:
+  mode: "all_pairs"
+  baseline: "sq_deg_c_d"
+
+alpha: 0.05
+
+alternative: "two-sided"

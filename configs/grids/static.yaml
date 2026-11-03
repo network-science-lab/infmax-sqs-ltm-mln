@@ -1,0 +1,46 @@
+# Recompute of the Static baseline (seed -> diffusion flow, shared rankings).
+
+sources:
+  full: full/*
+  arxiv: arxiv/*
+  timik: timik/*
+  aucs: full_experiment_*_aucs
+
+strategies:
+  StaticSeedingStrategy:
+    prefix: static
+    results_root: data/_static_results
+
+# rep r ranks by v2 ranking r
+overrides:
+  - "+spreading.ranking_replicas=true"
+
+modes:
+  - SS
+  - SQ
+  - SQ_R
+
+mi_values:
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+
+seed_budgets:
+  OR:
+    - 0.05
+    - 0.1
+    - 0.15
+    - 0.2
+    - 0.25
+  AND:
+    - 0.15
+    - 0.2
+    - 0.25
+    - 0.3
+    - 0.35

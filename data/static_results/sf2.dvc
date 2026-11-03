@@ -1,0 +1,6 @@
+outs:
+- md5: bd2d388dc024537d655a702d021279a1.dir
+  size: 86275947
+  nfiles: 1
+  hash: md5
+  path: sf2

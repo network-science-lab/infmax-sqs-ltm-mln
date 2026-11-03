@@ -141,7 +141,7 @@ class TestActiveActorFiltering:
 
 class TestRankingRecomputed:
     def test_actorwise_called_each_seeding_epoch(self, net, actors) -> None:
-        """Unlike StaticSeedingStrategy, the ranking must be recomputed every call."""
+        """Without a budget (no simulator) the ranking is recomputed at every seeding call."""
         strategy = SubnetSeedingStrategy(selector="deg-c", mode="SQ", batch_size=1)
         with patch.object(strategy._selector, "actorwise", wraps=strategy._selector.actorwise) as mock_aw:
             for epoch in range(4):
@@ -186,3 +186,19 @@ class TestAllSelectors:
         batch = strategy.next_batch(net, remaining, epoch=0, stagnant=False)
         remaining_ids = {a.actor_id for a in remaining}
         assert all(a.actor_id in remaining_ids for a in batch)
+
+
+@pytest.mark.parametrize(("rerank_percent", "max_rankings"), [(0, None), (10, 10), (50, 2)])
+def test_rerank_percent_limits_rankings(rerank_percent: float, max_rankings: int | None) -> None:
+    """The subnet is re-ranked once per ``rerank_percent`` % of the budget (0: every seed)."""
+    from sqs.loaders.net_loader import load_network
+    from sqs.models.propagation.mltm import SQSMLTModel
+    from sqs.runners.simulator import SequentialSimulator
+
+    strategy = SubnetSeedingStrategy("deg-c-d", "SQ", 1, rerank_percent=rerank_percent)
+    with patch.object(strategy._selector, "actorwise", wraps=strategy._selector.actorwise) as ranking:
+        log = SequentialSimulator(SQSMLTModel("AND", 0.5), load_network("lazega")).perform_propagation(
+            30, strategy, max_epochs=None, patience=2, track_full_logs=False
+        )
+    seeds = sum(len(v) for v in log.seeding_events.values())
+    assert ranking.call_count == seeds if max_rankings is None else 1 <= ranking.call_count <= max_rankings

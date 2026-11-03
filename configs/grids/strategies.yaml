@@ -1,0 +1,52 @@
+# Static configs from sources re-run with other strategies (see scripts/run_grid.py).
+
+# source name -> glob over config names (multi-schedule configs are split per schedule)
+sources:
+  full: full/*
+  arxiv: arxiv/*
+  timik: timik/*
+  aucs: full_experiment_*_aucs
+
+strategies:
+  SubnetSeedingStrategy:
+    prefix: subnet
+    results_root: data/_subnet_results
+  AdaptiveSeedingStrategy:
+    prefix: adaptive
+    results_root: data/_adaptive_results
+
+# Selectors (of the Static ones) run here. mds+deg excluded: Subnet recomputes the minimum
+# dominating set at every seed (0.3 s per actor timeout, ~4 h per rep on er2), impractical.
+# voterank and ts-net rank on the GPU.
+selectors:
+  - deg-c-d
+  - nghb-sd
+  - ts-net
+  - voterank
+
+# SS skipped (for Subnet equivalent to Static SS)
+modes:
+  - SQ
+  - SQ_R
+
+mi_values:
+  OR:
+    - 0.7
+    - 0.8
+    - 0.9
+  AND:
+    - 0.5
+    - 0.6
+    - 0.7
+
+seed_budgets:
+  OR:
+    - 0.1
+    - 0.15
+    - 0.2
+    - 0.25
+  AND:
+    - 0.2
+    - 0.25
+    - 0.3
+    - 0.35

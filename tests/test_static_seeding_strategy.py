@@ -152,3 +152,40 @@ class TestAllSelectors:
         batch = strategy.next_batch(net, remaining, epoch=0, stagnant=False)
         remaining_ids = {a.actor_id for a in remaining}
         assert all(a.actor_id in remaining_ids for a in batch)
+
+
+def test_candidates_equal_stable_candidates(toy_net) -> None:
+    """Ranking-order filter (SS) and cursor (SQ, shrinking remaining) equal _stable_candidates."""
+    import random
+
+    actors = toy_net.get_actors()
+    ss = StaticSeedingStrategy(selector="deg-c", mode="SS")
+    ranking = ss.get_or_compute_ranking(toy_net)
+    random.seed(0)
+    for _ in range(50):
+        remaining = random.sample(actors, random.randint(0, len(actors)))
+        assert ss._candidates(toy_net, remaining) == ss._stable_candidates(ranking, remaining)
+
+    for _ in range(20):
+        sq = StaticSeedingStrategy(selector="deg-c", mode="SQ", batch_size=2)
+        sq.set_precomputed_ranking(ranking)
+        remaining = list(actors)
+        while remaining:
+            expected = sq._stable_candidates(ranking, remaining)[:2]
+            assert sq._candidates(toy_net, remaining) == expected
+            for actor in random.sample(remaining, random.randint(1, len(remaining))):
+                remaining.remove(actor)
+
+
+def test_voterank_without_links_returns_actors_by_id() -> None:
+    """A network without links (e.g. a Subnet of isolated actors) gets no votes: id order."""
+    import networkx as nx
+    from network_diffusion.mln.mlnetwork import MultilayerNetwork
+
+    from sqs.runners.selectors import SELECTOR_CLASSES
+
+    graph = nx.Graph()
+    graph.add_nodes_from([3, 1, 2])
+    net = MultilayerNetwork(layers={"l1": graph})
+    ranking = SELECTOR_CLASSES["voterank"](device="cpu").actorwise(net)
+    assert [a.actor_id for a in ranking] == [1, 2, 3]

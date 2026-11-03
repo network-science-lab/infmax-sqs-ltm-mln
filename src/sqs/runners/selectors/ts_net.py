@@ -49,6 +49,7 @@ class _StubUnpickler(pickle.Unpickler):
         try:
             return super().find_class(module, name)
         except (ImportError, AttributeError):
+
             class _Stub:
                 def __init__(self, *args: Any, **kwargs: Any) -> None:
                     pass
@@ -105,8 +106,7 @@ class TsNetSeedSelector(BaseSeedSelector):
 
     def _load_model(self) -> tuple[TopSpreadersNetwork, dict[str, Any]]:
         """
-        Load ``TopSpreadersNetwork`` from disk on first call; return cached objects
-        on subsequent calls.
+        Load ``TopSpreadersNetwork`` from disk on first call, then return the cached objects.
 
         The PyTorch-Lightning checkpoint stores the model under the key
         ``"student."`` (the ``self.student`` attribute of the wrapper).  This
@@ -196,9 +196,7 @@ class TsNetSeedSelector(BaseSeedSelector):
             )
 
         x_dict: dict[str, torch.Tensor] = {"actor": features.to(device)}
-        z_dict: dict[str, torch.Tensor] = {
-            "actor": mlt.nodes_mask.T.float().to(device)
-        }
+        z_dict: dict[str, torch.Tensor] = {"actor": mlt.nodes_mask.T.float().to(device)}
 
         # Extract per-layer edge indices from the 3-D sparse adjacency tensor
         # without materialising a dense [n_layers x n_actors x n_actors] matrix.
@@ -206,9 +204,7 @@ class TsNetSeedSelector(BaseSeedSelector):
         edge_index_dict: dict[Any, torch.Tensor] = {}
         for layer_pos, layer_name in enumerate(mlt.layers_order):
             mask = idx[0] == layer_pos
-            edge_index_dict[("actor", f"l_{layer_pos}", "actor")] = (
-                idx[1:, mask].to(device)
-            )
+            edge_index_dict[("actor", f"l_{layer_pos}", "actor")] = idx[1:, mask].to(device)
 
         return x_dict, z_dict, edge_index_dict
 
@@ -244,14 +240,16 @@ class TsNetSeedSelector(BaseSeedSelector):
             sorted_indices = sorted_indices[order]
         return sorted_indices.tolist()
 
-    def _run_inference(self, net: MultilayerNetwork) -> list[str]:
+    def _run_inference(self, net: MultilayerNetwork) -> list[tuple[str, dict[str, float]]]:
         """
-        Run the model on ``net`` and return actor IDs sorted by predicted spreading
-        influence (EXPOSED desc, SIMULATION_LENGTH asc, PEAK_INFECTED asc, PEAK_ITERATION desc).
+        Run the model on ``net`` and return actor IDs sorted by predicted spreading influence.
+
+        Order: EXPOSED desc, SIMULATION_LENGTH asc, PEAK_INFECTED asc, PEAK_ITERATION desc.
 
         :param net: multilayer network to rank actors for.
 
-        :returns: list of actor ID strings in descending predicted-influence order.
+        :returns: (actor ID string, predicted outputs by label) in descending predicted-influence
+            order.
         """
         model, saved = self._load_model()
         input_dim: int = saved["model_config"]["model"]["parameters"]["input_dim"]
@@ -265,9 +263,7 @@ class TsNetSeedSelector(BaseSeedSelector):
             y_names = []
 
         mlt = MultilayerNetworkTorch.from_mln(net, device=self._device)
-        x_dict, z_dict, edge_index_dict = self._build_inputs(
-            mlt, x_type, input_dim, self._device
-        )
+        x_dict, z_dict, edge_index_dict = self._build_inputs(mlt, x_type, input_dim, self._device)
 
         with torch.no_grad():
             out = model(x_dict, z_dict, edge_index_dict)
@@ -278,30 +274,34 @@ class TsNetSeedSelector(BaseSeedSelector):
         else:
             sorted_indices = scores[:, 0].argsort(descending=True).tolist()
 
-        return [str(mlt.actors_map.inverse[idx]) for idx in sorted_indices]
+        names = y_names or [f"output_{i}" for i in range(scores.shape[1])]
+        return [
+            (str(mlt.actors_map.inverse[idx]), dict(zip(names, scores[idx].tolist())))
+            for idx in sorted_indices
+        ]
 
     def actorwise(self, net: MultilayerNetwork) -> list[MLNetworkActor]:
-        """
-        Return all actors in ``net`` sorted by predicted spreading influence.
+        """Return all actors in ``net`` sorted by predicted spreading influence."""
+        return [a for a, _ in self.scored(net)]
 
-        Any actors present in ``net`` but missing from the model's output (e.g.
-        due to actor-id type mismatches) are appended at the tail in arbitrary
-        order.
+    def scored(self, net: MultilayerNetwork) -> list[tuple[MLNetworkActor, Any]]:
+        """
+        Return (actor, predicted outputs) sorted by predicted spreading influence.
+
+        Actors missing from the model's output (e.g. actor-id type mismatches) are appended at
+        the tail with score ``None``.
 
         :param net: multilayer network whose actors are to be ranked.
 
-        :returns: actors sorted from highest to lowest predicted spreading
-            influence.
+        :returns: actors from highest to lowest predicted spreading influence, each with the
+            model outputs (exposed, simulation_length, peak_infected, peak_iteration).
         """
-        actor_lookup: dict[str, MLNetworkActor] = {
-            str(a.actor_id): a for a in net.get_actors()
-        }
-        ranked_ids = self._run_inference(net)
-        ranked: list[MLNetworkActor] = [
-            actor_lookup[aid] for aid in ranked_ids if aid in actor_lookup
+        actor_lookup: dict[str, MLNetworkActor] = {str(a.actor_id): a for a in net.get_actors()}
+        ranked = [
+            (actor_lookup[aid], out) for aid, out in self._run_inference(net) if aid in actor_lookup
         ]
-        ranked_set = {str(a.actor_id) for a in ranked}
-        tail = [a for a in actor_lookup.values() if str(a.actor_id) not in ranked_set]
+        ranked_set = {str(a.actor_id) for a, _ in ranked}
+        tail = [(a, None) for a in actor_lookup.values() if str(a.actor_id) not in ranked_set]
         return ranked + tail
 
     def _calculate_ranking_list(self, graph: Any) -> list[Any]:

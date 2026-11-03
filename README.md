@@ -49,28 +49,34 @@ magnitude slower than the rest and cannot be handed to a single process as a who
 `full_experiment_aucs.yaml` stays a single bundled config since aucs is cheap enough that splitting
 it further would not help.
 
-Each config writes its `results.csv` to `data/raw_results/<out_dir>/`, appending one row per
-repetition as soon as it completes (rather than only at the end of the run), so a killed or crashed
-job keeps whatever it has already finished.
+Each run writes `results.csv` to its `run.out_dir`, appending one row per repetition as soon as it
+completes, so a killed or crashed job keeps whatever it has already finished.
 
-To run many of these concurrently (weight-balanced by network, default 2 workers since this machine
-is shared), use `scripts/run_grid.py` with an `fnmatch` glob:
+Grids of jobs are defined by specs in `configs/grids/` (each job re-runs a Static base config with
+one strategy, mode and selector via Hydra overrides) and run with `scripts/run_grid.py`:
+
+- `static.yaml`: Static baseline, jobs in `data/_static_results/`
+- `strategies.yaml`: Subnet and Adaptive, jobs in `data/_subnet_results/`, `data/_adaptive_results/`
 
 ```bash
-uv run python scripts/run_grid.py "full/and_*" --workers 2
-uv run python scripts/run_grid.py "timik/*" "arxiv/*" --workers 2 --cuda-devices 0,1
+uv run python scripts/precompute_rankings.py configs/grids/static.yaml "static/*" --device cpu --workers 16
+uv run python scripts/run_grid.py configs/grids/static.yaml "static/full/*" --status --workers 16
+uv run python scripts/run_grid.py configs/grids/static.yaml "static/full/*" "static/aucs/*" \
+  --split mi --device cpu --workers 16 --longest-first
+uv run python scripts/verify_grid_results.py configs/grids/static.yaml "static/*"
 ```
 
-See the script's module docstring for details (job ordering, GPU pinning via `--cuda-devices`,
-duplicate-launch protection).
+Interrupted jobs resume where they stopped (`+run.resume=false` to disable); `--split` runs slices
+that are merged once all are complete. Rankings are cached in `data/rankings/v<N>/`: one per
+(network, selector), and one per repetition for mds (randomised), so SS / SQ / SQ_R always share a
+ranking. `precompute_rankings.py` fills the cache up front.
 
-Since each job only covers one (protocol, network, mode, selector) slice, use
-`scripts/merge_results.py` to regroup finished jobs by network into one combined `results.csv`
-per network -- the same shape `data/raw_results/full_aucs/results.csv` already has:
+Each job covers one (protocol, network, mode, selector) slice; `scripts/merge_results.py` regroups
+finished jobs into one `<out-root>/<network>/results.csv` per network (DVC-tracked):
 
 ```bash
-uv run python scripts/merge_results.py data/raw_results/full
-uv run python scripts/merge_results.py data/raw_results/full data/raw_results/arxiv data/raw_results/timik
+uv run python scripts/merge_results.py data/_static_results/{full,aucs,arxiv,timik} \
+  --out-root data/static_results
 ```
 
 To test the pipeline on a small toy network first:

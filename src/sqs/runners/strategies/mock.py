@@ -32,4 +32,4 @@ class MockSeedingStrategy:
         """
         if not remaining:
             return []
-        return [remaining[0]]
+        return [next(iter(remaining))]

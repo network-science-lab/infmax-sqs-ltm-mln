@@ -12,6 +12,7 @@ metrics:
 group_by:
   - protocol
   - network
+pair_by:
   - mi_value
   - seed_budget
 
