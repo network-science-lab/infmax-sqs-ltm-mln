@@ -1,0 +1,6 @@
+outs:
+- md5: 2e56e92138e03c5c08784bb0e480def7.dir
+  size: 2415024147
+  nfiles: 12
+  hash: md5
+  path: adaptive_results

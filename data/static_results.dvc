@@ -1,0 +1,6 @@
+outs:
+- md5: 074c0d9f618826e6ed4ab9232530f447.dir
+  size: 4947311521
+  nfiles: 12
+  hash: md5
+  path: static_results
