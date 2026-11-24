@@ -1,0 +1,6 @@
+outs:
+- md5: 99a45f497dcf74cbb427a670ee2a0e65.dir
+  size: 2693145364
+  nfiles: 12
+  hash: md5
+  path: subnet_results

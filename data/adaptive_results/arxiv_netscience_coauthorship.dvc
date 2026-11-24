@@ -1,6 +1,0 @@
-outs:
-- md5: e5a1f7da5d117d05884edf96412e26d9.dir
-  size: 225463825
-  nfiles: 1
-  hash: md5
-  path: arxiv_netscience_coauthorship
