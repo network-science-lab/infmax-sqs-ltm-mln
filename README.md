@@ -117,3 +117,7 @@ Run tests:
 ```bash
 uv run pytest
 ```
+
+## Acknowledgement
+
+This research was partially supported by: Horizon Europe, EU, grant no. 10108632; National Science Centre, Poland, grant no. 2022/45/B/ST6/04145; Polish National Agency for Academic Exchange, Strategic Partnerships, grant no. BPI/PST/2024/1/00129/U/00001; Wrocław University of Science and Technology, Academia Professorum Iuniorum and  Minigrants projects. Views and opinions expressed here are those of the authors and do not necessarily reflect those of the funding agencies.
