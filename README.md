@@ -3,6 +3,16 @@
 A research codebase investigating **sequential seeding strategies** for influence maximisation in
 multilayer networks under the Linear Threshold Model (LTM).
 
+## Project website
+
+**[Adaptive Seeding in Multilayer Networks](https://network-science-lab.github.io/adaptive-seeding/)** provides the interactive companion to the research:
+
+- [Simulator](https://network-science-lab.github.io/adaptive-seeding/#simulator): compare activation strategies and selection policies on stacked network layers, replay verified campaign runs, or import a network.
+- [Paper results](https://network-science-lab.github.io/adaptive-seeding/#paper-results): filter condition means across the 1,004,400-trial campaign, including final coverage, diffusion gain, seed savings, model epochs and common-horizon AUC.
+- [Website source and hosting](https://github.com/network-science-lab/adaptive-seeding): the standalone browser app, pinned research assets and publication workflow.
+
+Visitors can open the public website without an account. Simulations, imported networks and saved comparisons remain in their browser.
+
 ## Repository structure
 
 ```bash
